@@ -1,0 +1,26 @@
+name: Deploy to VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_path:
+        description: Absolute project path on the target server or NAS
+        required: true
+        default: /volume1/docker/food
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd "${{ inputs.deploy_path }}"
+            git pull --ff-only
+            docker compose down
+            docker compose up -d --build
