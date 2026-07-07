@@ -1,0 +1,20 @@
+{
+  "ai": {
+    "baseUrl1": "",
+    "apiKey1": "",
+    "model1": "",
+    "modelLight1": "",
+    "baseUrl2": "",
+    "apiKey2": "",
+    "model2": "",
+    "modelLight2": "",
+    "baseUrl3": "",
+    "apiKey3": "",
+    "model3": "",
+    "modelLight3": ""
+  },
+  "xyq": {
+    "accessKey": "",
+    "baseUrl": ""
+  }
+}

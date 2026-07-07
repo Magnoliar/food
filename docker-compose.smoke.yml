@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "41833:41832"
+    user: "${PUID:-1001}:${PGID:-1001}"
+    volumes:
+      - ./docker-data/data:/app/data
+      - ./docker-data/public/uploads:/app/public/uploads
+      - ./docker-data/uploads_backup:/app/uploads_backup
+      - ./docker-data/server/data:/app/server/data
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:/app/data/dev.db

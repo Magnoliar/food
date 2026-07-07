@@ -1,0 +1,46 @@
+{
+  "id": "wp1",
+  "name": "2026年第23周",
+  "startDate": "2026-06-02",
+  "endDate": "2026-06-08",
+  "meals": [
+    { "date": "2026-06-02", "dayLabel": "周二", "meal1": { "recipeId": "r1", "name": "凉拌鲫鱼", "label": "晚餐" }, "meal2": { "recipeId": "r2", "name": "孜然糊辣牛肉", "label": "次日便当" } },
+    { "date": "2026-06-03", "dayLabel": "周三", "meal1": { "recipeId": "r2", "name": "孜然糊辣牛肉", "label": "晚餐" }, "meal2": { "recipeId": "r2", "name": "孜然糊辣牛肉", "label": "次日便当" } },
+    { "date": "2026-06-04", "dayLabel": "周四", "meal1": { "recipeId": "r3", "name": "油豆腐烧肉", "label": "晚餐" }, "meal2": { "recipeId": "r3", "name": "油豆腐烧肉", "label": "次日便当" } },
+    { "date": "2026-06-05", "dayLabel": "周五", "meal1": { "recipeId": null, "name": "螺蛳粉", "label": "晚餐" }, "meal2": null },
+    { "date": "2026-06-06", "dayLabel": "周六", "meal1": { "recipeId": null, "name": "", "label": "午餐" }, "meal2": { "recipeId": null, "name": "韩式烤肉", "label": "晚餐" } },
+    { "date": "2026-06-07", "dayLabel": "周日", "meal1": { "recipeId": "r9", "name": "番茄土豆炖牛腩", "label": "午餐" }, "meal2": { "recipeId": "r9", "name": "番茄牛腩便当", "label": "晚餐" } },
+    { "date": "2026-06-08", "dayLabel": "周一", "meal1": { "recipeId": null, "name": "", "label": "晚餐" }, "meal2": { "recipeId": null, "name": "", "label": "次日便当" } }
+  ],
+  "shoppingList": {
+    "海鲜水产": [
+      { "name": "鲫鱼", "amount": "500g", "checked": false },
+      { "name": "虾仁", "amount": "1袋", "checked": false }
+    ],
+    "肉禽蛋品": [
+      { "name": "猪里脊/梅花肉", "amount": "约300g", "checked": true },
+      { "name": "牛里脊/黄瓜条", "amount": "约400g", "checked": true },
+      { "name": "五花肉", "amount": "约400g", "checked": true },
+      { "name": "牛腩", "amount": "约500-800g", "checked": false },
+      { "name": "烤肉组合", "amount": "1份", "checked": false },
+      { "name": "鸡蛋", "amount": "1盒", "checked": false }
+    ],
+    "蔬菜菌菇": [
+      { "name": "螺丝椒/尖椒", "amount": "1袋", "checked": true },
+      { "name": "生菜/苏子叶", "amount": "1份", "checked": true },
+      { "name": "口蘑/金针菇", "amount": "1份", "checked": true },
+      { "name": "番茄", "amount": "2-3个", "checked": false },
+      { "name": "土豆", "amount": "1-2个", "checked": true },
+      { "name": "西兰花", "amount": "1颗", "checked": true },
+      { "name": "香菜/小葱/大蒜/生姜", "amount": "各适量", "checked": true },
+      { "name": "小米辣", "amount": "1份", "checked": true }
+    ],
+    "调味干货": [
+      { "name": "油豆腐", "amount": "1袋", "checked": true },
+      { "name": "螺蛳粉", "amount": "1-2包", "checked": true },
+      { "name": "孜然粉/孜然粒", "amount": "1份", "checked": true },
+      { "name": "干辣椒/花椒", "amount": "1份", "checked": true },
+      { "name": "韩式蘸酱/干碟", "amount": "1份", "checked": true }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "猪猪家的厨房",
+  "short_name": "猪猪厨房",
+  "description": "把这周想吃的、要买的、做过的饭都好好收起来。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#C06030",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

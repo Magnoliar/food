@@ -1,0 +1,13 @@
+{
+  "frozen": [
+    { "name": "牛腩", "amount": "500g", "addedDate": "2026-06-01" },
+    { "name": "虾仁", "amount": "1袋", "addedDate": "2026-05-28" },
+    { "name": "鸡腿", "amount": "4个", "addedDate": "2026-06-02" }
+  ],
+  "refrigerated": [
+    { "name": "鸡蛋", "amount": "6个", "addedDate": "2026-06-02" },
+    { "name": "番茄", "amount": "3个", "addedDate": "2026-06-01" },
+    { "name": "五花肉", "amount": "300g", "addedDate": "2026-06-03" },
+    { "name": "牛奶", "amount": "1盒", "addedDate": "2026-06-02" }
+  ]
+}

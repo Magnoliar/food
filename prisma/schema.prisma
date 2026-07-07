@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id       String @id @default(uuid())
+  name     String
+  avatar   String?
+  role     String @default("member")
+  cookLogs CookLog[]
+}
+
+model Recipe {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  category       String?
+  status         String   @default("want_to_make")
+  difficulty     Int      @default(3)
+  estimatedTime  Int      @default(30) @map("estimated_time")
+  score          Float    @default(0)
+  cookCount      Int      @default(0) @map("cook_count")
+  steps          String   @default("[]")
+  tip            String?
+  coverColor     String?  @map("cover_color")
+  coverPhotoUrl  String?  @map("cover_photo_url")
+  notes          String?
+
+  ingredients    RecipeIngredient[]
+  tags           Tag[]              @relation("RecipeTags")
+  collections    Collection[]       @relation("RecipeCollections")
+  cookLogs       CookLog[]
+  mealSlots      MealSlot[]
+}
+
+model FridgeItem {
+  id         String    @id @default(uuid())
+  name       String
+  amount     String?
+  zone       String    @default("refrigerated")
+  addedDate  DateTime  @default(now()) @map("added_date")
+  expiryDate DateTime? @map("expiry_date")
+}
+
+model RecipeIngredient {
+  id            String     @id @default(uuid())
+  recipeId      String     @map("recipe_id")
+  ingredientId  String     @map("ingredient_id")
+  amount        String?
+  unit          String?
+  optional      Boolean    @default(false)
+  substituteFor String?    @map("substitute_for")
+
+  recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, ingredientId])
+}
+
+model Ingredient {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  category        String?
+  family          String?
+  lineArtUrl      String?  @map("line_art_url")
+  crayonColor     String?  @map("crayon_color")
+
+  recipeIngredients RecipeIngredient[]
+  tags              Tag[]              @relation("IngredientTags")
+  substitutes       Ingredient[]       @relation("Substitutes")
+  substituteOf      Ingredient[]       @relation("Substitutes")
+  lineArtJobs       LineArtJob[]
+}
+
+model LineArtJob {
+  id             String     @id
+  ingredientName String     @map("ingredient_name")
+  ingredientId   String?    @map("ingredient_id")
+  status         String     @default("pending")
+  imageUrls      String     @default("[]") @map("image_urls")
+  selectedUrl    String?    @map("selected_url")
+  error          String?
+  threadId       String?    @map("thread_id")
+  runId          String?    @map("run_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  ingredient     Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+
+  @@index([ingredientId, status])
+  @@index([status, updatedAt])
+}
+
+model Tag {
+  id        String @id @default(uuid())
+  name      String
+  dimension String
+  parentId  String? @map("parent_id")
+  color     String?
+
+  recipes     Recipe[]     @relation("RecipeTags")
+  ingredients Ingredient[] @relation("IngredientTags")
+  parent      Tag?         @relation("TagHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Tag[]        @relation("TagHierarchy")
+}
+
+model CookLog {
+  id               String   @id @default(uuid())
+  recipeId         String   @map("recipe_id")
+  userId           String   @map("user_id")
+  date             DateTime @default(now())
+  photos           String   @default("[]")
+  selfScore        Float?   @map("self_score")
+  partnerScore     Float?   @map("partner_score")
+  selfComment      String?  @map("self_comment")
+  partnerComment   String?  @map("partner_comment")
+  notes            String?
+
+  recipe           Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MediaAsset {
+  id          String   @id @default(uuid())
+  kind        String
+  url         String
+  originalUrl String?  @map("original_url")
+  mimeType    String?  @map("mime_type")
+  size        Int?
+  width       Int?
+  height      Int?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Collection {
+  id          String @id @default(uuid())
+  name        String
+  description String?
+  icon        String?
+
+  recipes     Recipe[] @relation("RecipeCollections")
+}
+
+model CookingTip {
+  id       String @id @default(uuid())
+  title    String
+  content  String
+  category String?
+}
+
+model WeekPlan {
+  id        String      @id @default(uuid())
+  name      String
+  startDate DateTime    @map("start_date")
+  endDate   DateTime    @map("end_date")
+  status    String      @default("active")
+  weekKey   String?     @map("week_key")
+  meals     MealSlot[]
+  shoppingLists ShoppingList[]
+}
+
+model MealSlot {
+  id          String    @id @default(uuid())
+  weekPlanId  String    @map("week_plan_id")
+  date        DateTime
+  mealLabel   String    @map("meal_label")
+  recipeId    String?   @map("recipe_id")
+  customName  String?   @map("custom_name")
+  notes       String?
+  status      String?
+  skipReason  String?   @map("skip_reason")
+
+  weekPlan    WeekPlan  @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  recipe      Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+}
+
+model ShoppingList {
+  id         String             @id @default(uuid())
+  weekPlanId String?            @map("week_plan_id")
+  name       String
+  startDate  DateTime?          @map("start_date")
+  endDate    DateTime?          @map("end_date")
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+  weekPlan   WeekPlan?          @relation(fields: [weekPlanId], references: [id], onDelete: SetNull)
+  items      ShoppingListItem[]
+}
+
+model ShoppingListItem {
+  id             String       @id @default(uuid())
+  shoppingListId String       @map("shopping_list_id")
+  name           String
+  amount         String?
+  category       String       @default("其他")
+  checked        Boolean      @default(false)
+  inStock        Boolean      @default(false) @map("in_stock")
+  source         String?
+  manual         Boolean      @default(false)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+
+  @@unique([shoppingListId, name])
+}
+
+model Achievement {
+  id          String @id @default(uuid())
+  code        String @unique
+  name        String
+  description String
+  icon        String?
+  condition   String @default("auto")
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  achievementId String      @map("achievement_id")
+  userId        String?     @map("user_id")
+  unlockedAt    DateTime    @default(now()) @map("unlocked_at")
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([achievementId, userId])
+}
+
+model AchievementEvent {
+  id        String   @id @default(uuid())
+  eventType String   @map("event_type")
+  userId    String?  @map("user_id")
+  refKey    String?  @map("ref_key")
+  createdAt DateTime @default(now()) @map("created_at")
+}

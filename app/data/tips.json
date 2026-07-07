@@ -1,0 +1,521 @@
+[
+  {
+    "id": "tip-gen-1",
+    "title": "牛肉嫩滑秘诀",
+    "content": "牛肉逆纹切薄片，加蛋清、淀粉、少许油抓匀腌制15分钟，大火快炒不超过2分钟，口感嫩滑不柴。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "牛肉",
+      "牛里脊",
+      "牛腩"
+    ]
+  },
+  {
+    "id": "tip-gen-2",
+    "title": "五花肉煸出灵魂",
+    "content": "五花肉冷水下锅煮至筷子能插透，捞出放凉切薄片。不粘锅不放油，小火慢煸至边缘微卷、出油，这才是回锅肉的灵魂。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "五花肉"
+    ]
+  },
+  {
+    "id": "tip-gen-3",
+    "title": "猪蹄去腥三步",
+    "content": "猪蹄冷水浸泡30分钟去血水 → 冷水下锅焯水加姜片料酒 → 焯好后温水冲洗干净。三步走完，猪蹄零腥味。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "猪蹄"
+    ]
+  },
+  {
+    "id": "tip-gen-4",
+    "title": "排骨焯水用冷水",
+    "content": "排骨一定要冷水下锅焯水，热水下锅会让蛋白质瞬间凝固，血水锁在里面，越焯越腥。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "排骨"
+    ]
+  },
+  {
+    "id": "tip-gen-5",
+    "title": "鱼不破皮的秘诀",
+    "content": "煎鱼前用厨房纸彻底擦干表面水分，热锅冷油，撒少许盐在锅底，鱼下锅后不要急着翻面，等3分钟定型再翻。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鱼",
+      "鲫鱼",
+      "鲈鱼"
+    ]
+  },
+  {
+    "id": "tip-gen-6",
+    "title": "虾仁弹牙处理",
+    "content": "虾仁加少许盐和淀粉轻轻抓匀，静置10分钟后冲洗干净。这一步能让虾仁口感更弹牙。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾仁",
+      "虾"
+    ]
+  },
+  {
+    "id": "tip-gen-7",
+    "title": "酱油分两次加",
+    "content": "炒菜时酱油分两次加：第一次在食材入锅时沿锅边淋入增香，第二次出锅前加提鲜。两次加比一次加味道更有层次。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "生抽"
+    ]
+  },
+  {
+    "id": "tip-gen-8",
+    "title": "番茄出汁是关键",
+    "content": "做番茄类菜品时，番茄一定要先用油炒出汁水再加其他食材。用铲子按压帮助出汁，这是汤汁浓郁的关键。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "番茄"
+    ]
+  },
+  {
+    "id": "tip-gen-9",
+    "title": "热锅冷油防粘",
+    "content": "炒菜前先把空锅烧至冒烟，再倒油润锅，随即下食材。\"热锅冷油\"是中式炒菜防粘的基本功。",
+    "category": "工具技巧",
+    "relatedIngredients": []
+  },
+  {
+    "id": "tip-gen-10",
+    "title": "炖肉加山楂或茶叶",
+    "content": "炖牛肉时加几颗山楂或一小撮茶叶，肉质更软烂，时间缩短三分之一。原理是酸性物质帮助分解蛋白质。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "牛肉",
+      "牛腩"
+    ]
+  },
+  {
+    "id": "tip-gen-11",
+    "title": "蒸鱼豉油最后淋",
+    "content": "清蒸鱼出锅后，倒掉盘中蒸出的腥水，铺上葱姜丝，淋上滚烫的热油激发香味，最后才浇蒸鱼豉油。顺序很重要。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鲈鱼",
+      "鱼"
+    ]
+  },
+  {
+    "id": "tip-gen-12",
+    "title": "蒜要最后放",
+    "content": "蒜蓉类菜品，蒜蓉不要炒太久。关火前30秒下蒜蓉，利用余温激香，蒜香味最浓郁。炒过头会发苦。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-gen-13",
+    "title": "凉拌鲫鱼 - 小贴士",
+    "content": "鲫鱼刺多，煮熟后捞出要小心。料汁要重，鱼肉要鲜。如果有藿香一定加，是灵魂。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鲫鱼",
+      "小米辣"
+    ]
+  },
+  {
+    "id": "tip-gen-14",
+    "title": "孜然糊辣牛肉 - 小贴士",
+    "content": "干辣椒要炸到微微发黑变色才是\"糊辣\"的关键。牛肉不要炒太久，大火快进快出。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "牛里脊",
+      "干辣椒"
+    ]
+  },
+  {
+    "id": "tip-gen-15",
+    "title": "油豆腐烧肉 - 小贴士",
+    "content": "油豆腐非常吸汁，建议五花肉多炖一会儿出油，再放油豆腐，这样油豆腐会比肉还好吃。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "五花肉",
+      "油豆腐"
+    ]
+  },
+  {
+    "id": "tip-gen-16",
+    "title": "南瓜巴斯克 - 小贴士",
+    "content": "南瓜泥要偏干是关键，出炉后冷水坐浴能快速定型。今晚吃偏半冷冻芝士口感，隔夜冷藏更好。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "奶油奶酪",
+      "南瓜"
+    ]
+  },
+  {
+    "id": "tip-gen-17",
+    "title": "紫苏干煎鸭 - 小贴士",
+    "content": "紫苏叶要分两次加：焖的时候加一次出香，出锅前再加一次提鲜。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鸭子",
+      "紫苏叶"
+    ]
+  },
+  {
+    "id": "tip-gen-18",
+    "title": "芥末咖喱罗氏虾 - 小贴士",
+    "content": "咖喱煮好关火前再挤入芥末酱，这样芥末的辛辣味不会因为高温久煮而消失。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "罗氏虾",
+      "咖喱块"
+    ]
+  },
+  {
+    "id": "tip-gen-19",
+    "title": "回锅肉 - 小贴士",
+    "content": "五花肉要煮到筷子能插透再切片，煸的时候不要急，慢慢煸出油才是灵魂。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "五花肉",
+      "蒜苗"
+    ]
+  },
+  {
+    "id": "tip-gen-20",
+    "title": "板栗烧鸡 - 小贴士",
+    "content": "用熟板栗仁省时间。收汁略多一点，便当加热时拌饭更香。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鸡腿",
+      "板栗仁"
+    ]
+  },
+  {
+    "id": "tip-gen-21",
+    "title": "番茄土豆炖牛腩 - 小贴士",
+    "content": "番茄一定要先炒出汁水，这是汤汁浓郁的关键。周日炖一大锅，周一便当汤汁拌饭绝了。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "牛腩",
+      "番茄"
+    ]
+  },
+  {
+    "id": "tip-gen-22",
+    "title": "辣椒炒肉 - 小贴士",
+    "content": "用螺丝椒比青椒更香更辣。五花肉要煸出油才好吃。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "五花肉",
+      "螺丝椒"
+    ]
+  },
+  {
+    "id": "tip-gen-23",
+    "title": "豉油鸡 - 小贴士",
+    "content": "用豉油鸡汁更方便。鸡不要煮太久，筷子插入无血水即可。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "三黄鸡",
+      "生抽"
+    ]
+  },
+  {
+    "id": "tip-gen-24",
+    "title": "雪菜肉末面 - 小贴士",
+    "content": "雪菜肉末可多炒一点冷藏，面条建议当天现煮。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "猪肉末",
+      "雪菜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562095-bzmv",
+    "title": "油豆腐烧肉 - 贴士",
+    "content": "嫩豆腐先用盐水焯一下不易碎，轻轻翻动。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "五花肉",
+      "油豆腐",
+      "冰糖"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562095-f87u",
+    "title": "芥末咖喱罗氏虾 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "罗氏虾",
+      "咖喱块",
+      "芥末酱"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-u4nv",
+    "title": "大虾烧娃娃菜 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-iz9x",
+    "title": "泰式肉末拌饭 - 贴士",
+    "content": "鱼要新鲜，煎之前擦干水分，热锅冷油不粘锅。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "猪肉末",
+      "米饭",
+      "小米辣"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-pbh8",
+    "title": "洋葱肥牛 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "肥牛卷",
+      "洋葱",
+      "生抽"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-7y9n",
+    "title": "浓缩番茄汤 - 贴士",
+    "content": "这道菜做过很多次了，试试换一种调味方式会有新发现。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "番茄",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-c6yw",
+    "title": "炒牛肉 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-ybex",
+    "title": "炸鸡 - 秘诀",
+    "content": "油温要够，复炸一次更酥脆。炸完放在吸油纸上沥油。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "鸡肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-w0ia",
+    "title": "芥末罗氏虾 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-21p2",
+    "title": "香煎鱼 - 贴士",
+    "content": "鱼要新鲜，煎之前擦干水分，热锅冷油不粘锅。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "鱼",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-5z4l",
+    "title": "干椰虾 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-6aev",
+    "title": "干烤鱼 - 贴士",
+    "content": "鱼要新鲜，煎之前擦干水分，热锅冷油不粘锅。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "鱼",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562096-0jmw",
+    "title": "柠檬鸭 - 贴士",
+    "content": "便当菜选不易出水的食材，酱汁收干一些，微波加热更香。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "鸭肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-9tvy",
+    "title": "麻婆豆腐 - 秘诀",
+    "content": "高分菜谱！保持这个配方，下次可以多做一份分享。",
+    "category": "秘方",
+    "relatedIngredients": [
+      "嫩豆腐",
+      "猪肉末",
+      "郫县豆瓣酱"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-a5z0",
+    "title": "麻婆豆腐 - 贴士",
+    "content": "嫩豆腐先用盐水焯一下不易碎，轻轻翻动。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "嫩豆腐",
+      "猪肉末",
+      "郫县豆瓣酱"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-fin0",
+    "title": "黑椒牛柳 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-3hf1",
+    "title": "酸菜鱼 - 贴士",
+    "content": "鱼要新鲜，煎之前擦干水分，热锅冷油不粘锅。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "黑鱼片",
+      "酸菜",
+      "泡椒"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-let1",
+    "title": "西芹炒虾仁 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-3hmk",
+    "title": "土豆肥牛 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "土豆",
+      "姜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-bma6",
+    "title": "孜然牛肉 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-9m0o",
+    "title": "白灼虾 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-s0py",
+    "title": "广式牛筋煲 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-k984",
+    "title": "番茄豆腐浓汁虾汤 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "番茄",
+      "姜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-mje4",
+    "title": "彩椒炒牛肉 - 贴士",
+    "content": "牛肉要逆纹切才嫩，腌制时加蛋清和淀粉锁住水分。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "牛肉",
+      "姜",
+      "蒜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-rtjo",
+    "title": "菌菇芦笋炒虾仁 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "芦笋",
+      "姜"
+    ]
+  },
+  {
+    "id": "tip-auto-1780564562097-7jdb",
+    "title": "虾仁滑蛋 - 贴士",
+    "content": "虾不要炒太久，变红即熟，过火会柴。",
+    "category": "食材特性",
+    "relatedIngredients": [
+      "虾",
+      "姜",
+      "蒜"
+    ]
+  }
+]

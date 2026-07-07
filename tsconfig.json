@@ -1,0 +1,19 @@
+{
+  // https://nuxt.com/docs/guide/concepts/typescript
+  "extends": "./.nuxt/tsconfig.json",
+  "exclude": [
+    "node_modules",
+    ".output",
+    "app/generated",
+    "reference",
+    "docs",
+    "tmp-line-art-sheets",
+    "backups",
+    "scripts/import-data.ts",
+    "scripts/import-to-db.ts",
+    "scripts/import-xyq-downloads.ts",
+    "scripts/generate-line-arts.ts",
+    "scripts/generate-tips.ts",
+    "scripts/restore-line-art.ts"
+  ]
+}

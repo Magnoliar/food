@@ -1,0 +1,134 @@
+// This is your Prisma schema file.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id     String @id @default(uuid())
+  name   String
+  avatar String?
+  role   String @default("member")
+  cookLogs CookLog[]
+}
+
+model Recipe {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  category        String?
+  status          String   @default("want_to_make") // want_to_make, can_make, made
+  difficulty      Int      @default(3) // 1-5
+  estimated_time  Int      @default(30) // minutes
+  score           Float    @default(0) // 0-10
+  cook_count      Int      @default(0)
+  steps           String   @default("[]") // JSON string of steps
+  
+  ingredients     RecipeIngredient[]
+  tags            Tag[]
+  collections     Collection[]
+  cookLogs        CookLog[]
+  tips            CookingTip[]
+}
+
+model RecipeIngredient {
+  id              String   @id @default(uuid())
+  recipe_id       String
+  ingredient_id   String
+  amount          Float?
+  unit            String?
+  optional        Boolean  @default(false)
+  substitute_for  String?
+  
+  recipe          Recipe     @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+  ingredient      Ingredient @relation(fields: [ingredient_id], references: [id], onDelete: Cascade)
+}
+
+model Ingredient {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  category        String?
+  parent_tag_id   String?
+  line_art_url    String?
+  crayon_color    String?
+  
+  recipeIngredients RecipeIngredient[]
+  tags            Tag[]
+  tips            CookingTip[]
+}
+
+model Tag {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  dimension   String   // ingredient_family, cuisine, dish_type, etc.
+  parent_id   String?
+  color       String?
+  icon        String?
+  
+  recipes     Recipe[]
+  ingredients Ingredient[]
+  tips        CookingTip[]
+}
+
+model CookLog {
+  id                 String   @id @default(uuid())
+  recipe_id          String
+  date               DateTime @default(now())
+  user_id            String
+  photos             String   @default("[]") // JSON string of array
+  self_score         Float?
+  partner_score      Float?
+  self_comment       String?
+  partner_comment    String?
+  notes              String?
+  ingredient_version String?  // JSON string
+  
+  recipe             Recipe   @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+  user               User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Collection {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  icon        String?
+  
+  recipes     Recipe[]
+}
+
+model CookingTip {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  category    String?
+  
+  recipes     Recipe[]
+  ingredients Ingredient[]
+  tags        Tag[]
+}
+
+model WeekPlan {
+  id          String     @id @default(uuid())
+  name        String
+  start_date  DateTime
+  end_date    DateTime
+  meals       MealSlot[]
+}
+
+model MealSlot {
+  id            String   @id @default(uuid())
+  week_plan_id  String
+  date          DateTime
+  meal_type     String   // dinner, lunch_bento
+  recipe_id     String?
+  custom_name   String?
+  notes         String?
+  
+  week_plan     WeekPlan @relation(fields: [week_plan_id], references: [id], onDelete: Cascade)
+}
+

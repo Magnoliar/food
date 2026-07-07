@@ -1,0 +1,60 @@
+{
+  "name": "food",
+  "private": true,
+  "type": "module",
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
+  "overrides": {
+    "@hono/node-server": "^1.19.13"
+  },
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check:mojibake": "tsx scripts/check-mojibake.ts",
+    "cleanup:e2e-artifacts": "tsx scripts/cleanup-e2e-artifacts.ts",
+    "backup": "tsx scripts/backup-data.ts",
+    "verify:backup": "tsx scripts/verify-backup.ts",
+    "restore:drill": "tsx scripts/restore-drill.ts",
+    "export:docker-data": "tsx scripts/export-docker-data.ts",
+    "docker:smoke": "tsx scripts/docker-smoke.ts",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxtjs/google-fonts": "^3.2.0",
+    "@nuxtjs/tailwindcss": "^6.14.0",
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "better-sqlite3": "^12.10.0",
+    "d3": "^7.9.0",
+    "dotenv": "^17.4.2",
+    "html2canvas-pro": "^2.0.4",
+    "nuxt": "^3.21.6",
+    "sharp": "^0.34.5",
+    "vue": "^3.5.34",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/d3": "^7.4.3",
+    "@types/node": "^25.9.2",
+    "eslint": "^10.4.1",
+    "eslint-plugin-vue": "^10.9.2",
+    "playwright": "^1.60.0",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
+    "vitest": "^4.1.8",
+    "vue-eslint-parser": "^10.4.1",
+    "vue-tsc": "^3.3.4"
+  }
+}
