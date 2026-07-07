@@ -55,15 +55,24 @@ jobs:
       - name: Build Docker image
         run: docker build -t food-ci .
 
-      - name: Smoke Docker entrypoint
+      - name: Smoke Docker runtime
         run: |
           mkdir -p ci-docker-data
           cp dev.db ci-docker-data/dev.db
-          docker run --rm \
+          container_id="$(docker run -d \
             --user 0:0 \
+            -p 41834:41832 \
             -e DATABASE_URL=file:/app/data/dev.db \
             -e AUTH_SECRET=ci-auth-secret-ci-auth-secret-32chars \
             -e ADMIN_PASSWORD=ci-admin-password \
             -e PARTNER_PASSWORD=ci-partner-password \
             -v "$PWD/ci-docker-data:/app/data" \
-            food-ci node -e "console.log('docker entrypoint smoke ok')"
+            food-ci)"
+          trap 'docker logs "$container_id"; docker rm -f "$container_id"' EXIT
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:41834/api/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
