@@ -14,6 +14,7 @@ WORKDIR /app
 ENV DATABASE_URL=file:/app/data/dev.db
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN npx nuxt prepare
 RUN npx prisma generate
 RUN npm run build
 
