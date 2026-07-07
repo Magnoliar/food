@@ -8,34 +8,37 @@ datasource db {
 }
 
 model User {
-  id       String @id @default(uuid())
+  id       String    @id @default(uuid())
   name     String
   avatar   String?
-  role     String @default("member")
+  role     String    @default("member")
   cookLogs CookLog[]
 }
 
 model Recipe {
-  id             String   @id @default(uuid())
-  name           String
-  description    String?
-  category       String?
-  status         String   @default("want_to_make")
-  difficulty     Int      @default(3)
-  estimatedTime  Int      @default(30) @map("estimated_time")
-  score          Float    @default(0)
-  cookCount      Int      @default(0) @map("cook_count")
-  steps          String   @default("[]")
-  tip            String?
-  coverColor     String?  @map("cover_color")
-  coverPhotoUrl  String?  @map("cover_photo_url")
-  notes          String?
+  id            String  @id @default(uuid())
+  name          String
+  description   String?
+  category      String?
+  status        String  @default("want_to_make")
+  difficulty    Int     @default(3)
+  estimatedTime Int     @default(30) @map("estimated_time")
+  score         Float   @default(0)
+  cookCount     Int     @default(0) @map("cook_count")
+  steps         String  @default("[]")
+  tip           String?
+  coverColor    String? @map("cover_color")
+  coverPhotoUrl String? @map("cover_photo_url")
+  notes         String?
 
-  ingredients    RecipeIngredient[]
-  tags           Tag[]              @relation("RecipeTags")
-  collections    Collection[]       @relation("RecipeCollections")
-  cookLogs       CookLog[]
-  mealSlots      MealSlot[]
+  ingredients RecipeIngredient[]
+  tags        Tag[]              @relation("RecipeTags")
+  collections Collection[]       @relation("RecipeCollections")
+  cookLogs    CookLog[]
+  mealSlots   MealSlot[]
+
+  @@index([score])
+  @@index([cookCount])
 }
 
 model FridgeItem {
@@ -45,30 +48,34 @@ model FridgeItem {
   zone       String    @default("refrigerated")
   addedDate  DateTime  @default(now()) @map("added_date")
   expiryDate DateTime? @map("expiry_date")
+
+  @@index([zone, expiryDate])
+  @@index([expiryDate])
 }
 
 model RecipeIngredient {
-  id            String     @id @default(uuid())
-  recipeId      String     @map("recipe_id")
-  ingredientId  String     @map("ingredient_id")
+  id            String  @id @default(uuid())
+  recipeId      String  @map("recipe_id")
+  ingredientId  String  @map("ingredient_id")
   amount        String?
   unit          String?
-  optional      Boolean    @default(false)
-  substituteFor String?    @map("substitute_for")
+  optional      Boolean @default(false)
+  substituteFor String? @map("substitute_for")
 
-  recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  ingredient    Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([recipeId, ingredientId])
+  @@index([ingredientId])
 }
 
 model Ingredient {
-  id              String   @id @default(uuid())
-  name            String   @unique
-  category        String?
-  family          String?
-  lineArtUrl      String?  @map("line_art_url")
-  crayonColor     String?  @map("crayon_color")
+  id          String  @id @default(uuid())
+  name        String  @unique
+  category    String?
+  family      String?
+  lineArtUrl  String? @map("line_art_url")
+  crayonColor String? @map("crayon_color")
 
   recipeIngredients RecipeIngredient[]
   tags              Tag[]              @relation("IngredientTags")
@@ -78,26 +85,27 @@ model Ingredient {
 }
 
 model LineArtJob {
-  id             String     @id
-  ingredientName String     @map("ingredient_name")
-  ingredientId   String?    @map("ingredient_id")
-  status         String     @default("pending")
-  imageUrls      String     @default("[]") @map("image_urls")
-  selectedUrl    String?    @map("selected_url")
+  id             String   @id
+  ingredientName String   @map("ingredient_name")
+  ingredientId   String?  @map("ingredient_id")
+  status         String   @default("pending")
+  imageUrls      String   @default("[]") @map("image_urls")
+  selectedUrl    String?  @map("selected_url")
   error          String?
-  threadId       String?    @map("thread_id")
-  runId          String?    @map("run_id")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
+  threadId       String?  @map("thread_id")
+  runId          String?  @map("run_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  ingredient     Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+  ingredient Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
 
   @@index([ingredientId, status])
   @@index([status, updatedAt])
+  @@index([createdAt])
 }
 
 model Tag {
-  id        String @id @default(uuid())
+  id        String  @id @default(uuid())
   name      String
   dimension String
   parentId  String? @map("parent_id")
@@ -107,22 +115,30 @@ model Tag {
   ingredients Ingredient[] @relation("IngredientTags")
   parent      Tag?         @relation("TagHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children    Tag[]        @relation("TagHierarchy")
+
+  @@index([name])
+  @@index([dimension, name])
+  @@index([parentId])
 }
 
 model CookLog {
-  id               String   @id @default(uuid())
-  recipeId         String   @map("recipe_id")
-  userId           String   @map("user_id")
-  date             DateTime @default(now())
-  photos           String   @default("[]")
-  selfScore        Float?   @map("self_score")
-  partnerScore     Float?   @map("partner_score")
-  selfComment      String?  @map("self_comment")
-  partnerComment   String?  @map("partner_comment")
-  notes            String?
+  id             String   @id @default(uuid())
+  recipeId       String   @map("recipe_id")
+  userId         String   @map("user_id")
+  date           DateTime @default(now())
+  photos         String   @default("[]")
+  selfScore      Float?   @map("self_score")
+  partnerScore   Float?   @map("partner_score")
+  selfComment    String?  @map("self_comment")
+  partnerComment String?  @map("partner_comment")
+  notes          String?
 
-  recipe           Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+  @@index([recipeId, date])
+  @@index([userId, date])
 }
 
 model MediaAsset {
@@ -136,48 +152,58 @@ model MediaAsset {
   height      Int?
   createdBy   String?  @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([url])
+  @@index([createdAt])
 }
 
 model Collection {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
   description String?
   icon        String?
 
-  recipes     Recipe[] @relation("RecipeCollections")
+  recipes Recipe[] @relation("RecipeCollections")
 }
 
 model CookingTip {
-  id       String @id @default(uuid())
+  id       String  @id @default(uuid())
   title    String
   content  String
   category String?
 }
 
 model WeekPlan {
-  id        String      @id @default(uuid())
-  name      String
-  startDate DateTime    @map("start_date")
-  endDate   DateTime    @map("end_date")
-  status    String      @default("active")
-  weekKey   String?     @map("week_key")
-  meals     MealSlot[]
+  id            String         @id @default(uuid())
+  name          String
+  startDate     DateTime       @map("start_date")
+  endDate       DateTime       @map("end_date")
+  status        String         @default("active")
+  weekKey       String?        @map("week_key")
+  meals         MealSlot[]
   shoppingLists ShoppingList[]
+
+  @@index([weekKey])
+  @@index([status, startDate])
+  @@index([startDate, endDate])
 }
 
 model MealSlot {
-  id          String    @id @default(uuid())
-  weekPlanId  String    @map("week_plan_id")
-  date        DateTime
-  mealLabel   String    @map("meal_label")
-  recipeId    String?   @map("recipe_id")
-  customName  String?   @map("custom_name")
-  notes       String?
-  status      String?
-  skipReason  String?   @map("skip_reason")
+  id         String   @id @default(uuid())
+  weekPlanId String   @map("week_plan_id")
+  date       DateTime
+  mealLabel  String   @map("meal_label")
+  recipeId   String?  @map("recipe_id")
+  customName String?  @map("custom_name")
+  notes      String?
+  status     String?
+  skipReason String?  @map("skip_reason")
 
-  weekPlan    WeekPlan  @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
-  recipe      Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  weekPlan WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  recipe   Recipe?  @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  @@index([weekPlanId, date])
+  @@index([recipeId])
 }
 
 model ShoppingList {
@@ -190,6 +216,9 @@ model ShoppingList {
   updatedAt  DateTime           @updatedAt @map("updated_at")
   weekPlan   WeekPlan?          @relation(fields: [weekPlanId], references: [id], onDelete: SetNull)
   items      ShoppingListItem[]
+
+  @@index([weekPlanId, updatedAt])
+  @@index([updatedAt])
 }
 
 model ShoppingListItem {
@@ -207,15 +236,16 @@ model ShoppingListItem {
   shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
 
   @@unique([shoppingListId, name])
+  @@index([shoppingListId, category, name])
 }
 
 model Achievement {
-  id          String @id @default(uuid())
-  code        String @unique
+  id          String            @id @default(uuid())
+  code        String            @unique
   name        String
   description String
   icon        String?
-  condition   String @default("auto")
+  condition   String            @default("auto")
   users       UserAchievement[]
 }
 

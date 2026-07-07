@@ -39,6 +39,26 @@ npm.cmd exec prisma migrate deploy
 
 不要在生产环境使用 `prisma migrate dev`。
 
+## SQLite 与 NAS 性能
+
+当前部署继续使用 SQLite，适合家庭菜谱、周计划、上传图片元数据这类低并发场景。应用启动时会为 SQLite 连接启用：
+
+- `journal_mode=WAL`：读写并发更稳，读请求不容易被写入阻塞。
+- `synchronous=NORMAL`：在 WAL 模式下减少同步写盘开销。
+- `busy_timeout=10000`：遇到短暂写锁时等待最多 10 秒，而不是立刻报 `database is locked`。
+- `foreign_keys=ON`：确保级联删除和外键约束按预期生效。
+
+已提交的 `20260707090000_sqlite_runtime_indexes` 迁移会为菜谱排序、做饭日志、周计划定位、购物清单、标签和上传媒体等常用路径创建索引。生产环境更新代码后执行 `prisma migrate deploy`，Docker 容器启动脚本也会自动执行迁移。
+
+WAL 模式下可能出现 `dev.db-wal` / `dev.db-shm` 辅助文件，这是正常现象。备份、迁移和导出仍然使用：
+
+```bash
+npm.cmd run backup
+npm.cmd run export:docker-data
+```
+
+这两个脚本通过 SQLite backup API 生成一致的数据库快照，不要在服务运行中只手动复制单个 `dev.db` 文件。
+
 ## Docker Compose 部署
 
 1. 准备 `.env`：
