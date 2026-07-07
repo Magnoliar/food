@@ -54,3 +54,16 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t food-ci .
+
+      - name: Smoke Docker entrypoint
+        run: |
+          mkdir -p ci-docker-data
+          cp dev.db ci-docker-data/dev.db
+          docker run --rm \
+            --user 0:0 \
+            -e DATABASE_URL=file:/app/data/dev.db \
+            -e AUTH_SECRET=ci-auth-secret-ci-auth-secret-32chars \
+            -e ADMIN_PASSWORD=ci-admin-password \
+            -e PARTNER_PASSWORD=ci-partner-password \
+            -v "$PWD/ci-docker-data:/app/data" \
+            food-ci node -e "console.log('docker entrypoint smoke ok')"

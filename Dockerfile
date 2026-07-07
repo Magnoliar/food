@@ -31,6 +31,7 @@ RUN adduser --system --uid 1001 nuxt
 
 COPY --from=builder /app/.output ./.output
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/app/generated/prisma ./app/generated/prisma
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/public ./public
