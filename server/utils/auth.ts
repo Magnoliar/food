@@ -14,7 +14,7 @@ const MEMBER_NAME = '猪宝'
 
 function getSecret() {
   const config = useRuntimeConfig()
-  return String(config.authSecret || process.env.AUTH_SECRET || DEFAULT_SECRET)
+  return String(process.env.AUTH_SECRET || config.authSecret || DEFAULT_SECRET)
 }
 
 function sign(payload: string) {
@@ -68,10 +68,10 @@ export function verifyAuthToken(token?: string | null): AuthUser | null {
 
 export function getConfiguredUsers(): Record<string, AuthUser & { password: string }> {
   const config = useRuntimeConfig()
-  const adminUser = String(config.adminUser || 'zhuzhu')
-  const adminPassword = String(config.adminPassword || 'zhuzhu')
-  const memberUser = String(config.partnerUser || 'zhubao')
-  const memberPassword = String(config.partnerPassword || 'zhubao')
+  const adminUser = String(process.env.ADMIN_USER || config.adminUser || 'zhuzhu')
+  const adminPassword = String(process.env.ADMIN_PASSWORD || config.adminPassword || 'zhuzhu')
+  const memberUser = String(process.env.PARTNER_USER || config.partnerUser || 'zhubao')
+  const memberPassword = String(process.env.PARTNER_PASSWORD || config.partnerPassword || 'zhubao')
 
   const users: Record<string, AuthUser & { password: string }> = {
     [adminUser]: {
@@ -100,13 +100,15 @@ export function assertProductionAuthConfig() {
   if (process.env.NODE_ENV !== 'production') return
 
   const config = useRuntimeConfig()
-  const secret = String(config.authSecret || process.env.AUTH_SECRET || '')
+  const secret = String(process.env.AUTH_SECRET || config.authSecret || '')
   if (!secret || secret === DEFAULT_SECRET || secret.length < 32) {
     throw createError({ statusCode: 500, message: '生产环境必须配置至少 32 位 AUTH_SECRET' })
   }
 
   const weakPasswords = new Set(['momo', 'partner', 'zhuzhu', 'zhubao'])
-  if (weakPasswords.has(String(config.adminPassword || '')) || weakPasswords.has(String(config.partnerPassword || ''))) {
+  const adminPassword = String(process.env.ADMIN_PASSWORD || config.adminPassword || '')
+  const partnerPassword = String(process.env.PARTNER_PASSWORD || config.partnerPassword || '')
+  if (weakPasswords.has(adminPassword) || weakPasswords.has(partnerPassword)) {
     throw createError({ statusCode: 500, message: '生产环境不能使用默认登录密码' })
   }
 }

@@ -68,7 +68,15 @@ jobs:
             -e PARTNER_PASSWORD=ci-partner-password \
             -v "$PWD/ci-docker-data:/app/data" \
             food-ci)"
-          trap 'docker logs "$container_id"; docker rm -f "$container_id"' EXIT
+          cleanup() {
+            status="$?"
+            if [ "$status" -ne 0 ]; then
+              docker logs "$container_id"
+            fi
+            docker rm -f "$container_id"
+            exit "$status"
+          }
+          trap cleanup EXIT
           for i in {1..45}; do
             if curl -fsS http://127.0.0.1:41834/api/health; then
               exit 0
