@@ -24,13 +24,13 @@ const LOGIN_REQUIRED_PREFIXES = [
 ]
 
 export default defineEventHandler((event) => {
-  assertProductionAuthConfig()
-
   const path = getRequestURL(event).pathname
   const method = getMethod(event)
 
   if (!path.startsWith('/api/')) return
   if (PUBLIC_PATHS.has(path)) return
+
+  assertProductionAuthConfig()
 
   const user = verifyAuthToken(getCookie(event, 'auth_token'))
   if (user) event.context.authUser = user
