@@ -22,6 +22,7 @@ interface PosterRecipeViewModel {
 }
 
 const { getRecipes, getCookLogs } = useApi()
+const toast = useToast()
 
 const recipes = ref<Recipe[]>([])
 const cookLogs = ref<CookLog[]>([])
@@ -279,8 +280,11 @@ const exportPoster = async () => {
     link.download = `zhuzhu-home-kitchen-${safeFileName(viewModel.value.recipeName)}-${new Date().toISOString().split('T')[0]}.png`
     link.href = canvas.toDataURL('image/png')
     link.click()
-  } catch {
-    loadError.value = '导出没有成功，请确认图片已经加载完成后再试。'
+    toast.success('打卡图片已导出。')
+  } catch (error: unknown) {
+    const message = getApiErrorMessage(error, '导出没有成功，请确认图片已经加载完成后再试。')
+    loadError.value = message
+    toast.error(message)
   } finally {
     isExporting.value = false
   }
@@ -289,19 +293,13 @@ const exportPoster = async () => {
 
 <template>
   <div class="animate-fade-in pb-20 lg:pb-0" data-testid="poster-page">
-    <div class="mb-6 lg:mb-8">
-      <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-1 font-sans">Check-in</p>
-      <h1 class="text-3xl lg:text-4xl font-serif font-bold text-[#1a1714]">打卡生成</h1>
-      <p class="mt-2 text-sm text-[#8B7D6B]">做过的菜，选一张好看的卡片。</p>
-    </div>
+    <PageHeader title="打卡生成" eyebrow="把这顿收进一张卡片" description="左右滑动、箭头和圆点都会切换同一组模板；导出时只包含卡片本身。" />
 
     <div v-if="isLoading" class="rounded-lg border border-dashed border-[#D8C9B8] bg-white/60 px-6 py-10 text-center text-sm text-[#8B7D6B]">
       正在准备打卡卡片...
     </div>
 
-    <div v-else-if="loadError" class="rounded-lg border border-[#E5B5A8] bg-[#FFF4F0] px-6 py-5 text-sm text-[#8B4E3F]">
-      {{ loadError }}
-    </div>
+    <AppNotice v-else-if="loadError" tone="danger" role="alert" title="打卡内容没有准备好" :message="loadError"><AppButton class="mt-3" variant="secondary" @click="loadPosterData">重新加载</AppButton></AppNotice>
 
     <div v-else-if="!viewModel" class="rounded-lg border border-dashed border-[#D8C9B8] bg-white/60 px-6 py-10 text-center">
       <p class="font-serif text-xl text-[#2C2825]">还没有可以生成打卡的菜谱</p>
@@ -537,11 +535,12 @@ const exportPoster = async () => {
             v-for="template in templates"
             :key="template.key"
             type="button"
-            class="h-2 rounded-full transition-all"
-            :class="selectedTemplate === template.key ? 'w-7 bg-[#3D3530]' : 'w-2 bg-[#D8C9B8]'"
+            class="touch-target flex items-center justify-center rounded-full"
+            :class="selectedTemplate === template.key ? 'text-[var(--color-text)]' : 'text-[var(--color-border-strong)]'"
             :aria-label="`切换到${template.label}`"
+            :aria-current="selectedTemplate === template.key ? 'true' : undefined"
             @click="selectedTemplate = template.key"
-          />
+          ><span class="block h-2 rounded-full bg-current transition-all" :class="selectedTemplate === template.key ? 'w-7' : 'w-2'" /></button>
         </div>
 
         <p class="mt-2 text-xs text-[#8B7D6B] md:hidden">{{ currentTemplate?.label }} · 左右滑动切换</p>
@@ -577,8 +576,8 @@ const exportPoster = async () => {
 
       <aside class="space-y-5 rounded-lg border border-[#E3D6C8] bg-white/70 p-5 h-fit">
         <div class="relative">
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">菜谱</p>
-          <input
+          <label for="poster-recipe-search" class="field-label">菜谱</label>
+          <input id="poster-recipe-search"
             v-model="recipeSearch"
             :placeholder="selectedRecipeName || '搜索菜谱...'"
             class="w-full px-3 py-2.5 bg-white border border-[#E3D6C8] rounded-lg text-sm text-[#1a1714] placeholder:text-[#A69080]/50 focus:outline-none focus:border-[#C06030]"
@@ -605,8 +604,8 @@ const exportPoster = async () => {
         </div>
 
         <div>
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">做饭记录</p>
-          <select v-model="selectedCookLogId" class="w-full px-3 py-2.5 bg-white border border-[#E3D6C8] rounded-lg text-sm text-[#1a1714]">
+          <label for="poster-cook-log" class="field-label">做饭记录</label>
+          <select id="poster-cook-log" v-model="selectedCookLogId" class="w-full px-3 py-2.5 bg-white border border-[#E3D6C8] rounded-lg text-sm text-[#1a1714]">
             <option value="">最近一次记录</option>
             <option v-for="log in recipeCookLogs" :key="log.id" :value="log.id">
               {{ formatDate(log.date) }}{{ log.photos?.length ? ' · 有照片' : '' }}
@@ -615,17 +614,17 @@ const exportPoster = async () => {
         </div>
 
         <div>
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">比例</p>
-          <div class="grid grid-cols-2 gap-2">
+          <p id="poster-ratio-label" class="field-label">卡片比例</p>
+          <div class="grid grid-cols-2 gap-2" role="group" aria-labelledby="poster-ratio-label">
             <button
-              class="py-2 rounded-lg border text-sm transition-colors"
+              class="touch-target rounded-lg border px-3 text-sm transition-colors"
               :class="selectedRatio === '4:5' ? 'border-[#3D3530] bg-[#3D3530] text-white' : 'border-[#E3D6C8] bg-white text-[#8B7D6B]'"
               @click="selectedRatio = '4:5'"
             >
               4:5
             </button>
             <button
-              class="py-2 rounded-lg border text-sm transition-colors"
+              class="touch-target rounded-lg border px-3 text-sm transition-colors"
               :class="selectedRatio === '3:4' ? 'border-[#3D3530] bg-[#3D3530] text-white' : 'border-[#E3D6C8] bg-white text-[#8B7D6B]'"
               @click="selectedRatio = '3:4'"
             >

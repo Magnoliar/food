@@ -21,7 +21,7 @@ if (existsSync(resolvedDb)) {
   }
 }
 
-for (const dir of ['public/uploads', 'uploads_backup', 'server/data']) {
+for (const dir of ['public/uploads', 'public/line-arts', 'uploads_backup', 'server/data']) {
   const source = path.join(root, dir)
   if (!existsSync(source)) continue
   if (statSync(source).isDirectory() && readdirSync(source).length) {

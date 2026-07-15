@@ -116,6 +116,7 @@ try {
 const directories = {
   publicUploads: copyDir('public/uploads', path.join(out, 'public', 'uploads')),
   uploadsBackup: copyDir('uploads_backup', path.join(out, 'uploads_backup')),
+  lineArts: copyDir('public/line-arts', path.join(out, 'public', 'line-arts')),
   serverData: copyDir('server/data', path.join(out, 'server', 'data')),
 }
 

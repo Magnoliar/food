@@ -1,53 +1,55 @@
 <script setup lang="ts">
 import { tagToLineArt } from '~/constants/recipe'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   tags?: string[]
+  alt?: string
   size?: 'sm' | 'md' | 'lg'
   aspectRatio?: string
-}>()
+}>(), { tags: () => [], alt: '', size: 'md', aspectRatio: '' })
 
 const lineArts = ['tomato', 'pepper', 'eggplant', 'pumpkin', 'garlic', 'chili', 'onion', 'fish', 'meat']
+const toneClasses = [
+  'bg-[var(--color-accent-soft)]',
+  'bg-[var(--color-success-soft)]',
+  'bg-[var(--color-warning-soft)]',
+  'bg-[var(--color-surface-muted)]',
+]
 
 const selectedSvg = computed(() => {
-  if (props.tags?.length) {
-    for (const tag of props.tags) {
-      if (tagToLineArt[tag]) return tagToLineArt[tag]
-    }
+  for (const tag of props.tags) {
+    if (tagToLineArt[tag]) return tagToLineArt[tag]
   }
-  // Deterministic fallback based on first tag or default
-  const seed = props.tags?.[0]?.charCodeAt(0) || 0
+  const seed = props.tags[0]?.charCodeAt(0) || 0
   return lineArts[seed % lineArts.length] || 'tomato'
 })
 
-const crayonColors = ['#E8927C', '#7FB5B5', '#D4A76A', '#A8C686', '#C7A0D2', '#7BA7C2']
-const bgColor = computed(() => {
+const toneClass = computed(() => {
   const svgName = selectedSvg.value || 'tomato'
-  const idx = (svgName.charCodeAt(0) + (svgName.charCodeAt(1) || 0)) % crayonColors.length
-  return crayonColors[idx]
+  const index = (svgName.charCodeAt(0) + (svgName.charCodeAt(1) || 0)) % toneClasses.length
+  return toneClasses[index]
 })
 
-const sizeClasses: Record<string, string> = {
-  sm: 'w-16 h-16',
-  md: 'w-24 h-24',
-  lg: 'w-32 h-32',
+const imageAlt = computed(() => props.alt || (props.tags[0] ? `${props.tags[0]}的手绘占位图` : '菜谱手绘占位图'))
+const sizeClasses: Record<'sm' | 'md' | 'lg', string> = {
+  sm: 'h-16 w-16',
+  md: 'h-24 w-24',
+  lg: 'h-32 w-32',
 }
 </script>
 
 <template>
   <div
-    class="flex items-center justify-center rounded-lg overflow-hidden"
-    :class="aspectRatio ? '' : (sizeClasses[size || 'md'] || sizeClasses.md)"
-    :style="{
-      backgroundColor: bgColor + '15',
-      aspectRatio: aspectRatio || undefined,
-    }"
+    class="flex items-center justify-center overflow-hidden rounded-[var(--radius-md)]"
+    :class="[toneClass, aspectRatio ? '' : sizeClasses[size]]"
+    :style="aspectRatio ? { aspectRatio } : undefined"
   >
     <img
       :src="`/line-arts/${selectedSvg}.svg`"
-      :alt="selectedSvg"
-      class="w-3/5 h-3/5 opacity-40"
-      :style="{ color: bgColor }"
+      :alt="imageAlt"
+      width="160"
+      height="160"
+      class="h-3/5 w-3/5 opacity-40"
       loading="lazy"
       decoding="async"
     />

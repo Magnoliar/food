@@ -1,239 +1,77 @@
 <script setup lang="ts">
-interface ShoppingItem {
-  id?: string
-  name: string
-  amount?: string | null
-  category?: string
-  checked: boolean
-  inStock?: boolean
-  source?: string | null
-}
+import type { ShoppingItem } from '~/types'
 
-const props = defineProps<{
-  items: Record<string, ShoppingItem[]> | ShoppingItem[]
-}>()
-
-const emit = defineEmits<{
-  refresh: []
-}>()
-
+const props = defineProps<{ items: Record<string, ShoppingItem[]> | ShoppingItem[] }>()
+const emit = defineEmits<{ refresh: [] }>()
 const { updateShoppingItem, addShoppingItem } = useApi()
+const toast = useToast()
 const newItemName = ref('')
 const copied = ref(false)
 const savingId = ref('')
+const adding = ref(false)
 const collapsedCategories = ref<string[]>([])
-
-const groupedItems = computed<Record<string, ShoppingItem[]>>(() => {
-  if (Array.isArray(props.items)) {
-    return props.items.reduce((acc, item) => {
-      const category = item.category || '其他'
-      if (!acc[category]) acc[category] = []
-      acc[category].push(item)
-      return acc
-    }, {} as Record<string, ShoppingItem[]>)
-  }
-  return props.items || {}
-})
-
-const sortedItems = (items: ShoppingItem[]) => {
-  return [...items].sort((a, b) => {
-    const rank = (item: ShoppingItem) => {
-      if (!item.checked && !item.inStock) return 0
-      if (item.inStock && !item.checked) return 1
-      return 2
-    }
-    return rank(a) - rank(b) || a.name.localeCompare(b.name, 'zh-CN')
-  })
-}
-
-const groupedEntries = computed(() => {
-  return Object.entries(groupedItems.value).map(([category, items]) => {
-    const pending = items.filter(item => !item.checked && !item.inStock).length
-    const handled = items.length - pending
-    return {
-      category,
-      items: sortedItems(items),
-      pending,
-      handled,
-      total: items.length,
-      collapsed: collapsedCategories.value.includes(category),
-    }
-  }).sort((a, b) => {
-    if (a.pending !== b.pending) return b.pending - a.pending
-    return a.category.localeCompare(b.category, 'zh-CN')
-  })
-})
-
+const groupedItems = computed<Record<string, ShoppingItem[]>>(() => Array.isArray(props.items) ? props.items.reduce<Record<string, ShoppingItem[]>>((groups, item) => { (groups[item.category || '其他'] ||= []).push(item); return groups }, {}) : props.items || {})
+const rank = (item: ShoppingItem) => !item.checked && !item.inStock ? 0 : item.inStock && !item.checked ? 1 : 2
+const groupedEntries = computed(() => Object.entries(groupedItems.value).map(([category, items]) => { const pending = items.filter(item => rank(item) === 0).length; return { category, items: [...items].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'zh-CN')), pending, handled: items.length - pending, total: items.length, collapsed: collapsedCategories.value.includes(category) } }).sort((a, b) => b.pending - a.pending || a.category.localeCompare(b.category, 'zh-CN')))
 const flatItems = computed(() => Object.values(groupedItems.value).flat())
 const totalCount = computed(() => flatItems.value.length)
-const handledCount = computed(() => flatItems.value.filter(i => i.checked || i.inStock).length)
-const remainingCount = computed(() => flatItems.value.filter(i => !i.checked && !i.inStock).length)
-const progress = computed(() => totalCount.value === 0 ? 0 : Math.round((handledCount.value / totalCount.value) * 100))
-
-const categoryIcons: Record<string, string> = {
-  '海鲜水产': '◇',
-  '肉禽蛋品': '●',
-  '蔬菜菌菇': '◆',
-  '调味干货': '◎',
-  '主食厨房': '□',
-  '乳品': '○',
-  '临时': '+',
-  '其他': '·',
-}
+const handledCount = computed(() => flatItems.value.filter(item => item.checked || item.inStock).length)
+const remainingCount = computed(() => totalCount.value - handledCount.value)
+const progress = computed(() => totalCount.value ? Math.round(handledCount.value / totalCount.value * 100) : 0)
+const categoryIcons: Record<string, string> = { 海鲜水产: '◇', 肉禽蛋品: '●', 蔬菜菌菇: '◆', 调味干货: '◎', 主食厨房: '□', 乳品: '○', 临时: '+', 其他: '·' }
 
 const toggleItem = async (item: ShoppingItem) => {
-  if (!item.id) {
-    item.checked = !item.checked
-    return
-  }
-  savingId.value = item.id
-  try {
-    await updateShoppingItem(item.id, { checked: !item.checked })
-    item.checked = !item.checked
-  } finally {
-    savingId.value = ''
-  }
+  if (!item.id || savingId.value) return
+  const next = !item.checked; savingId.value = item.id
+  try { await updateShoppingItem(item.id, { checked: next }); item.checked = next }
+  catch (error: unknown) { toast.error(getApiErrorMessage(error, '没有更新成功，请再试一次。')) }
+  finally { savingId.value = '' }
 }
-
 const toggleStock = async (item: ShoppingItem) => {
-  if (!item.id) return
-  savingId.value = item.id
-  try {
-    await updateShoppingItem(item.id, { inStock: !item.inStock })
-    item.inStock = !item.inStock
-  } finally {
-    savingId.value = ''
-  }
+  if (!item.id || savingId.value) return
+  const next = !item.inStock; savingId.value = item.id
+  try { await updateShoppingItem(item.id, { inStock: next }); item.inStock = next }
+  catch (error: unknown) { toast.error(getApiErrorMessage(error, '没有更新库存状态，请再试一次。')) }
+  finally { savingId.value = '' }
 }
-
-const toggleCategory = (category: string) => {
-  collapsedCategories.value = collapsedCategories.value.includes(category)
-    ? collapsedCategories.value.filter(item => item !== category)
-    : [...collapsedCategories.value, category]
-}
-
+const toggleCategory = (category: string) => { collapsedCategories.value = collapsedCategories.value.includes(category) ? collapsedCategories.value.filter(item => item !== category) : [...collapsedCategories.value, category] }
 const addItem = async () => {
-  const name = newItemName.value.trim()
-  if (!name) return
-  await addShoppingItem({ name, category: '临时' })
-  newItemName.value = ''
-  emit('refresh')
+  const name = newItemName.value.trim(); if (!name || adding.value) return
+  adding.value = true
+  try { await addShoppingItem({ name, category: '临时' }); newItemName.value = ''; emit('refresh'); toast.success('已加到购物清单。') }
+  catch (error: unknown) { toast.error(getApiErrorMessage(error, '没有添加成功，请再试一次。')) }
+  finally { adding.value = false }
 }
-
-const copyList = () => {
-  const lines = Object.entries(groupedItems.value).flatMap(([cat, items]) => {
-    const unchecked = items.filter(i => !i.checked && !i.inStock)
-    if (!unchecked.length) return []
-    return [`【${cat}】`, ...unchecked.map(i => `- ${i.name} ${i.amount || ''}`.trim())]
-  })
-  navigator.clipboard.writeText(lines.join('\n') || '已全部采购完成')
-  copied.value = true
-  setTimeout(() => { copied.value = false }, 2000)
+const copyList = async () => {
+  const lines = Object.entries(groupedItems.value).flatMap(([category, items]) => { const pending = items.filter(item => !item.checked && !item.inStock); return pending.length ? [`【${category}】`, ...pending.map(item => `- ${item.name} ${item.amount || ''}`.trim())] : [] })
+  try { await navigator.clipboard.writeText(lines.join('\n') || '已全部采购完成'); copied.value = true; window.setTimeout(() => { copied.value = false }, 2000) }
+  catch { toast.error('复制失败，可以手动选择清单内容。') }
 }
 </script>
 
 <template>
-  <div class="flex flex-col h-full" data-testid="shopping-list">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-2">
-        <h3 class="font-serif text-lg font-bold text-[#1a1714]">购物清单</h3>
-        <span v-if="remainingCount > 0" class="bg-[#A69080] text-white text-xs px-2 py-0.5 rounded-full font-mono">
-          {{ remainingCount }}
-        </span>
-      </div>
-      <button class="text-xs transition-colors flex items-center gap-1" :class="copied ? 'text-[#6D8B74]' : 'text-[#8B7D6B] hover:text-[#1a1714]'" @click="copyList">
-        {{ copied ? '已复制' : '复制' }}
-      </button>
+  <div class="flex h-full flex-col" data-testid="shopping-list">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <div><div class="flex items-center gap-2"><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">购物清单</h2><span v-if="remainingCount" class="rounded-md bg-[var(--color-accent-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--color-accent)]">还差 {{ remainingCount }}</span></div><p class="mt-1 text-xs text-[var(--color-text-faint)]">勾上已买；“家里有”也算处理完成。</p></div>
+      <button class="touch-target shrink-0 rounded-lg px-3 text-sm font-medium transition hover:bg-[var(--color-surface-muted)]" :class="copied ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]'" @click="copyList">{{ copied ? '已复制' : '复制' }}</button>
     </div>
+    <div class="mb-5 flex items-center gap-3" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100" :aria-label="`购物清单已处理 ${progress}%`"><div class="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)]"><div class="h-full rounded-full bg-[var(--color-success)] transition-[width] duration-500" :style="{ width: progress + '%' }" /></div><span class="tabular-nums text-xs text-[var(--color-text-muted)]">{{ handledCount }}/{{ totalCount }}</span></div>
 
-    <div class="flex items-center gap-3 mb-5">
-      <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div class="h-full bg-[#6D8B74] rounded-full transition-all duration-500" :style="{ width: progress + '%' }" />
-      </div>
-      <span class="font-mono text-xs text-[#8B7D6B]">{{ handledCount }}/{{ totalCount }}</span>
-    </div>
-
-    <div class="flex-1 overflow-y-auto space-y-4 pb-4">
-      <div v-for="group in groupedEntries" :key="group.category" class="rounded-lg border border-gray-100 bg-white/65">
-        <button
-          type="button"
-          class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-50"
-          :aria-expanded="!group.collapsed"
-          :data-testid="`shopping-category-${group.category}`"
-          @click="toggleCategory(group.category)"
-        >
-          <span class="text-sm font-mono">{{ categoryIcons[group.category] || '·' }}</span>
-          <h4 class="flex-1 text-sm font-bold text-[#1a1714]">{{ group.category }}</h4>
-          <span v-if="group.pending" class="rounded-full bg-[#F4ECE2] px-2 py-0.5 text-[11px] text-[#8B5A3C]">
-            还差 {{ group.pending }}
-          </span>
-          <span v-else class="rounded-full bg-[#6D8B74]/10 px-2 py-0.5 text-[11px] text-[#5C755F]">
-            都好了
-          </span>
-          <span class="font-mono text-xs text-[#A69080]">{{ group.handled }}/{{ group.total }}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4 text-[#A69080] transition-transform" :class="group.collapsed ? '' : 'rotate-180'">
-            <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
-
-        <div v-if="!group.collapsed" class="space-y-1 border-t border-gray-100 p-2">
-          <div
-            v-for="item in group.items"
-            :key="item.id || item.name"
-            class="flex min-h-[52px] items-center gap-3 rounded-md px-2 py-2 transition-all"
-            :class="item.checked || item.inStock ? 'bg-gray-50' : 'hover:bg-gray-50'"
-          >
-            <button
-              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md border transition-all active:scale-95"
-              :class="item.checked ? 'border-[#6D8B74] bg-[#6D8B74]' : 'border-gray-300'"
-              :disabled="savingId === item.id"
-              :aria-pressed="item.checked"
-              :data-shopping-checked="item.checked ? 'true' : 'false'"
-              :data-shopping-pending="!item.checked && !item.inStock ? 'true' : 'false'"
-              :data-testid="`shopping-toggle-${item.id || item.name}`"
-              @click="toggleItem(item)"
-            >
-              <svg v-if="item.checked" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" class="h-4 w-4">
-                <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </button>
-
-            <span
-              class="flex-1 text-sm transition-all"
-              :class="item.checked || item.inStock ? 'text-[#A69080] line-through' : 'text-[#1a1714]'"
-            >
-              {{ item.name }}
-              <span v-if="item.source && !item.checked" class="block text-[11px] text-[#A69080]/70 font-normal mt-0.5">{{ item.source }}</span>
-            </span>
-            <span class="max-w-[6rem] text-right font-mono text-xs text-[#8B7D6B]">{{ item.amount }}</span>
-            <button
-              class="rounded-md border px-3 py-2 text-xs transition-colors active:scale-95"
-              :class="item.inStock ? 'border-[#6D8B74] text-[#6D8B74] bg-[#6D8B74]/5' : 'border-gray-200 text-[#A69080]'"
-              :disabled="savingId === item.id"
-              @click="toggleStock(item)"
-            >
-              家里有
-            </button>
+    <EmptyState v-if="!totalCount" title="清单还是空的" description="排好菜谱后，点“保存并同步清单”生成；也可以先加一项。" icon="篮" />
+    <div v-else class="flex-1 space-y-3 pb-4">
+      <section v-for="group in groupedEntries" :key="group.category" class="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <button type="button" class="flex min-h-12 w-full items-center gap-2 px-3 text-left transition hover:bg-[var(--color-bg-soft)]" :aria-expanded="!group.collapsed" :data-testid="`shopping-category-${group.category}`" @click="toggleCategory(group.category)"><span aria-hidden="true">{{ categoryIcons[group.category] || '·' }}</span><h3 class="flex-1 text-sm font-semibold">{{ group.category }}</h3><span class="text-xs" :class="group.pending ? 'text-[var(--color-accent)]' : 'text-[var(--color-success)]'">{{ group.pending ? `还差 ${group.pending}` : '都好了' }}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4 text-[var(--color-text-faint)] transition-transform" :class="group.collapsed ? '' : 'rotate-180'" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <div v-if="!group.collapsed" class="border-t border-[var(--color-border)] p-1.5">
+          <div v-for="item in group.items" :key="item.id || item.name" class="flex min-h-14 items-center gap-2 rounded-lg px-1.5 py-1.5" :class="item.checked || item.inStock ? 'bg-[var(--color-bg-soft)]' : ''">
+            <button class="touch-target flex shrink-0 items-center justify-center rounded-lg border transition active:scale-[.98]" :class="item.checked ? 'border-[var(--color-success)] bg-[var(--color-success)]' : 'border-[var(--color-border-strong)] bg-white'" :disabled="savingId === item.id" :aria-label="item.checked ? `将${item.name}标为未购买` : `将${item.name}标为已购买`" :aria-pressed="item.checked" :data-shopping-checked="item.checked ? 'true' : 'false'" :data-shopping-pending="!item.checked && !item.inStock ? 'true' : 'false'" :data-testid="`shopping-toggle-${item.id || item.name}`" @click="toggleItem(item)"><svg v-if="item.checked" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" class="h-5 w-5" aria-hidden="true"><path d="m5 13 4 4L19 7" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+            <div class="min-w-0 flex-1"><p class="text-sm" :class="item.checked || item.inStock ? 'text-[var(--color-text-faint)] line-through' : 'text-[var(--color-text)]'">{{ item.name }}</p><p v-if="item.source && !item.checked" class="mt-0.5 truncate text-[11px] text-[var(--color-text-faint)]">用于 {{ item.source }}</p></div>
+            <span class="max-w-20 text-right text-xs text-[var(--color-text-muted)]">{{ item.amount }}</span>
+            <button class="touch-target shrink-0 rounded-lg border px-2 text-xs font-medium transition" :class="item.inStock ? 'border-[var(--color-success)] bg-[var(--color-success-soft)] text-[var(--color-success)]' : 'border-[var(--color-border)] text-[var(--color-text-muted)]'" :disabled="savingId === item.id" :aria-pressed="item.inStock" :aria-label="item.inStock ? `取消${item.name}家里有` : `标记${item.name}家里有`" @click="toggleStock(item)">家里有</button>
           </div>
         </div>
-      </div>
+      </section>
     </div>
 
-    <div class="pt-3 border-t border-gray-100 space-y-2">
-      <div class="flex gap-2">
-        <input
-          v-model="newItemName"
-          placeholder="添加临时项..."
-          class="flex-1 text-sm bg-transparent border border-dashed border-gray-300 rounded-md px-3 py-2 text-[#1a1714] placeholder:text-[#A69080]/40 focus:outline-none focus:border-[#A69080]"
-          data-testid="shopping-new-item"
-          @keyup.enter="addItem"
-        />
-        <button
-          class="px-3 py-2 bg-[#8B7D6B] text-white text-xs rounded-md hover:bg-[#6B5D4D] transition-colors"
-          data-testid="shopping-add-item"
-          @click="addItem"
-        >添加</button>
-      </div>
-    </div>
+    <form class="mt-2 flex gap-2 border-t border-[var(--color-border)] pt-3" @submit.prevent="addItem"><div class="min-w-0 flex-1"><label class="sr-only" for="shopping-new-item">添加临时购物项</label><input id="shopping-new-item" v-model="newItemName" class="field-control" placeholder="例如：厨房纸" data-testid="shopping-new-item" /></div><AppButton type="submit" variant="secondary" :loading="adding" data-testid="shopping-add-item">添加</AppButton></form>
   </div>
 </template>

@@ -105,9 +105,18 @@ export function assertProductionAuthConfig() {
     throw createError({ statusCode: 500, message: '生产环境必须配置至少 32 位 AUTH_SECRET' })
   }
 
-  const weakPasswords = new Set(['momo', 'partner', 'zhuzhu', 'zhubao'])
+  const adminUser = String(process.env.ADMIN_USER || config.adminUser || '').trim()
+  const partnerUser = String(process.env.PARTNER_USER || config.partnerUser || '').trim()
   const adminPassword = String(process.env.ADMIN_PASSWORD || config.adminPassword || '')
   const partnerPassword = String(process.env.PARTNER_PASSWORD || config.partnerPassword || '')
+  if (!adminUser || !partnerUser || !adminPassword || !partnerPassword) {
+    throw createError({ statusCode: 500, message: '生产环境必须配置完整的双人登录账号' })
+  }
+  if (adminUser === partnerUser) {
+    throw createError({ statusCode: 500, message: '管理员和成员账号不能相同' })
+  }
+
+  const weakPasswords = new Set(['momo', 'partner', 'zhuzhu', 'zhubao'])
   if (weakPasswords.has(adminPassword) || weakPasswords.has(partnerPassword)) {
     throw createError({ statusCode: 500, message: '生产环境不能使用默认登录密码' })
   }

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import sharp from 'sharp'
 import { prisma } from './prisma'
+import { getRuntimePaths, isPathInside } from './runtime-paths'
 
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024
 const MAX_PUBLIC_DIMENSION = 1200
@@ -29,8 +30,9 @@ export async function saveUploadedImage(file: any, kind: string, userId?: string
   const id = randomUUID()
   const filename = `${id}.${PUBLIC_IMAGE_EXTENSION}`
   const originalFilename = `${id}.original`
-  const publicDir = path.resolve(process.cwd(), 'public', 'uploads', ...parts)
-  const backupDir = path.resolve(process.cwd(), 'uploads_backup', ...parts)
+  const runtimePaths = getRuntimePaths()
+  const publicDir = path.resolve(runtimePaths.publicUploadsDir, ...parts)
+  const backupDir = path.resolve(runtimePaths.uploadsBackupDir, ...parts)
   await fs.mkdir(publicDir, { recursive: true })
   await fs.mkdir(backupDir, { recursive: true })
 
@@ -81,17 +83,18 @@ export async function deleteMediaAsset(id: string, userId?: string | null, isAdm
     throw createError({ statusCode: 403, message: '不能删除其他人的媒体文件' })
   }
 
-  const publicRoot = path.resolve(process.cwd(), 'public')
-  const backupRoot = path.resolve(process.cwd(), 'uploads_backup')
+  const runtimePaths = getRuntimePaths()
+  const publicRoot = runtimePaths.publicUploadsDir
+  const backupRoot = runtimePaths.uploadsBackupDir
   for (const candidate of [asset.url, asset.originalUrl]) {
     if (!candidate) continue
     const isBackup = candidate.startsWith('/uploads_backup')
     const root = isBackup ? backupRoot : publicRoot
     const relative = isBackup
       ? candidate.replace(/^\/uploads_backup\/?/, '')
-      : candidate.replace(/^\//, '')
+      : candidate.replace(/^\/uploads\/?/, '')
     const target = path.resolve(root, relative)
-    if (target.startsWith(root)) {
+    if (isPathInside(root, target)) {
       await fs.unlink(target).catch(() => {})
     }
   }

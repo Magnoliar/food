@@ -1,15 +1,57 @@
 services:
   app:
-    build: .
+    build:
+      context: .
     ports:
-      - "41833:41832"
+      - "${DOCKER_SMOKE_PORT:-41833}:41832"
     user: "${PUID:-1001}:${PGID:-1001}"
+    init: true
     volumes:
-      - ./docker-data/data:/app/data
-      - ./docker-data/public/uploads:/app/public/uploads
-      - ./docker-data/uploads_backup:/app/uploads_backup
-      - ./docker-data/server/data:/app/server/data
-    env_file:
-      - .env
+      - type: bind
+        source: ${DOCKER_SMOKE_DATA_ROOT:-./docker-data}/data
+        target: /app/data
+      - type: bind
+        source: ${DOCKER_SMOKE_DATA_ROOT:-./docker-data}/public/uploads
+        target: /app/public/uploads
+      - type: bind
+        source: ${DOCKER_SMOKE_DATA_ROOT:-./docker-data}/uploads_backup
+        target: /app/uploads_backup
+      - type: bind
+        source: ${DOCKER_SMOKE_DATA_ROOT:-./docker-data}/public/line-arts
+        target: /app/runtime-line-arts
+      - type: bind
+        source: ${DOCKER_SMOKE_DATA_ROOT:-./docker-data}/server/data
+        target: /app/server/data
     environment:
       DATABASE_URL: file:/app/data/dev.db
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: 41832
+      TZ: Asia/Shanghai
+      APP_UPLOADS_PATH: /app/public/uploads
+      APP_UPLOADS_BACKUP_PATH: /app/uploads_backup
+      APP_LINE_ARTS_PATH: /app/runtime-line-arts
+      APP_SETTINGS_PATH: /app/server/data/settings.json
+      APP_LINE_ART_HISTORY_PATH: /app/server/data/line-art-history.json
+      AUTH_SECRET: docker-smoke-auth-secret-2026-07-14-32chars
+      ADMIN_USER: docker-smoke-admin
+      ADMIN_PASSWORD: docker-smoke-admin-password
+      PARTNER_USER: docker-smoke-member
+      PARTNER_PASSWORD: docker-smoke-member-password
+      AI_BASE_URL_1: ""
+      AI_API_KEY_1: ""
+      AI_BASE_URL_2: ""
+      AI_API_KEY_2: ""
+      AI_BASE_URL_3: ""
+      AI_API_KEY_3: ""
+      XYQ_ACCESS_KEY: ""
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:41832/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 30s

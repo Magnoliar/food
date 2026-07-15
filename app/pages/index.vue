@@ -1,561 +1,196 @@
 <script setup lang="ts">
-const { getRecipes, getCurrentShoppingList, recommendRecipes, getFridge } = useApi()
+import type { CookLog, FridgeInventory, FridgeItem, KitchenPlanDay, Recipe, RecipeRecommendation, ShoppingList } from '~/types'
 
-const hasCookLog = ref(false)
-const todayCookLogs = ref<any[]>([])
-const recipes = ref<any[]>([])
-const expiringItems = ref<Array<{ name: string; daysLeft: number }>>([])
-const fridgeNames = ref<Set<string>>(new Set())
-const shoppingUncheckedNames = ref<Set<string>>(new Set())
-const shoppingLoaded = ref(false)
-const tips = ref<any[]>([])
-const weekPlan = ref<any | null>(null)
-const homeRecommendations = ref<any[]>([])
-const shoppingList = ref<any | null>(null)
-const aiTip = ref('')
+const { recipes, weekPlan, tips, loadFromApi, loadWeekPlanByDate } = useKitchenData()
+const { getCookLogs, getCurrentShoppingList, recommendRecipes, getFridge } = useApi()
+const toast = useToast()
+
+await loadFromApi()
+
 const todayDate = ref('')
 const todayDisplay = ref('')
+const todayCookLogs = ref<CookLog[]>([])
+const shoppingList = ref<ShoppingList | null>(null)
+const fridge = ref<FridgeInventory>({ frozen: [], refrigerated: [], room_temp: [] })
+const homeRecommendations = ref<RecipeRecommendation[]>([])
 const loading = ref(true)
+const refreshing = ref(false)
+const recommendationsLoading = ref(false)
+const aiTip = ref('')
+const aiTipFailed = ref(false)
+const imageFailures = ref(new Set<string>())
+const sectionErrors = ref<{ plan?: string; logs?: string; shopping?: string; fridge?: string }>({})
 
-const formatLocalDate = (date: Date) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+type HomeState = 'unplanned' | 'planned' | 'skipped' | 'cooked-unrecorded' | 'complete'
+const formatLocalDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const todayMeal = computed<KitchenPlanDay | null>(() => weekPlan.value.meals.find(day => day.date === todayDate.value) || null)
+const primarySlot = computed(() => todayMeal.value?.meal1 || null)
+const secondarySlot = computed(() => todayMeal.value?.meal2 || null)
+const todayRecipe = computed(() => recipes.value.find(recipe => recipe.id === primarySlot.value?.recipeId) || null)
+const bentoRecipe = computed(() => recipes.value.find(recipe => recipe.id === secondarySlot.value?.recipeId) || null)
+const relevantRecipeIds = computed(() => new Set([primarySlot.value?.recipeId, secondarySlot.value?.recipeId].filter((id): id is string => Boolean(id))))
+const relevantLogs = computed(() => todayCookLogs.value.filter(log => relevantRecipeIds.value.size ? relevantRecipeIds.value.has(log.recipeId) : true))
+const logHasDetails = (log: CookLog) => Boolean(log.photos?.length || log.selfScore || log.partnerScore || log.selfComment?.trim() || log.partnerComment?.trim() || log.notes?.trim())
+const homeState = computed<HomeState>(() => {
+  if (primarySlot.value?.status === 'skipped') return 'skipped'
+  if (!primarySlot.value?.name?.trim()) return 'unplanned'
+  if (!relevantLogs.value.length) return 'planned'
+  return relevantLogs.value.some(logHasDetails) ? 'complete' : 'cooked-unrecorded'
+})
+const stateCopy = computed(() => ({
+  unplanned: { eyebrow: '今晚还没安排', title: '今晚想吃什么？', description: '先选一道菜，接下来要买什么、什么时候开始做就清楚了。' },
+  planned: { eyebrow: '今晚吃这个', title: primarySlot.value?.name || '今晚的菜', description: secondarySlot.value?.name && secondarySlot.value.name !== primarySlot.value?.name ? `顺手多做一份：${secondarySlot.value.name}` : '安排已经有了，按自己的节奏开始就好。' },
+  skipped: { eyebrow: '今天不做饭', title: primarySlot.value?.skipReason || '今晚休息', description: '厨房今天也放个假，不需要完成任何任务。' },
+  'cooked-unrecorded': { eyebrow: '已经做好了', title: '趁热记两句', description: '基础记录已经保存，再补一张照片或一句感受就完整了。' },
+  complete: { eyebrow: '今天完成', title: '这一餐已经好好收进小本子', description: '辛苦了。接下来只要看看明天是否需要提前解冻或补货。' },
+}[homeState.value]))
+
+const allFridgeItems = computed<FridgeItem[]>(() => [...fridge.value.refrigerated, ...fridge.value.frozen, ...fridge.value.room_temp])
+const fridgeNames = computed(() => new Set(allFridgeItems.value.map(item => item.name.trim().toLowerCase())))
+const pendingShoppingNames = computed(() => new Set((shoppingList.value?.items || []).filter(item => !item.checked && !item.inStock).map(item => item.name.trim().toLowerCase())))
+const tonightIngredients = computed(() => {
+  const result = new Map<string, { name: string; amount: string; unit: string }>()
+  for (const recipe of [todayRecipe.value, bentoRecipe.value]) {
+    for (const item of recipe?.ingredients || []) {
+      if (!result.has(item.name)) result.set(item.name, { name: item.name, amount: item.amount || '', unit: item.unit || '' })
+    }
+  }
+  return [...result.values()]
+})
+const missingItems = computed(() => tonightIngredients.value.filter(item => {
+  const name = item.name.toLowerCase()
+  return pendingShoppingNames.value.has(name) || (!fridgeNames.value.has(name) && !shoppingList.value)
+}))
+const expiringItems = computed(() => {
+  if (!todayDate.value) return []
+  const today = new Date(`${todayDate.value}T00:00:00`).getTime()
+  return allFridgeItems.value.filter(item => item.expiryDate).map(item => ({ ...item, daysLeft: Math.ceil((new Date(item.expiryDate!).getTime() - today) / 86400000) })).filter(item => item.daysLeft <= 3).sort((a, b) => a.daysLeft - b.daysLeft)
+})
+const recommendations = computed<Recipe[]>(() => homeRecommendations.value.length ? homeRecommendations.value : [...recipes.value].sort((a, b) => b.score - a.score).slice(0, 4))
+const primaryLog = computed(() => relevantLogs.value[0] || null)
+const primaryAction = computed(() => {
+  if (homeState.value === 'unplanned') return { label: '安排今晚', to: '/planner' }
+  if (homeState.value === 'planned' && todayRecipe.value) return { label: '开始做饭', to: `/cook/${todayRecipe.value.id}` }
+  if (homeState.value === 'planned') return { label: '完善计划', to: '/planner' }
+  if (homeState.value === 'cooked-unrecorded' && primaryLog.value) return { label: '补充这次记录', to: `/cook-logs?editLog=${primaryLog.value.id}` }
+  if (homeState.value === 'complete') return { label: '看看记录', to: '/cook-logs' }
+  return { label: '看看菜谱', to: '/recipes' }
+})
+const fallbackTip = computed(() => tips.value[0]?.content || '把常用的食材放在顺手的位置，做饭会轻松很多。')
+
+let statusRequest: Promise<void> | null = null
+const refreshHome = async ({ announce = false }: { announce?: boolean } = {}) => {
+  if (statusRequest) return statusRequest
+  refreshing.value = true
+  statusRequest = (async () => {
+    const [planResult, logResult, shoppingResult, fridgeResult] = await Promise.allSettled([loadWeekPlanByDate(), getCookLogs(), getCurrentShoppingList(), getFridge()])
+    const errors: typeof sectionErrors.value = {}
+    if (planResult.status === 'rejected') errors.plan = getApiErrorMessage(planResult.reason, '今天的计划没有加载出来。')
+    if (logResult.status === 'fulfilled') todayCookLogs.value = logResult.value.filter(log => log.date?.startsWith(todayDate.value))
+    else errors.logs = getApiErrorMessage(logResult.reason, '今天的记录没有加载出来。')
+    if (shoppingResult.status === 'fulfilled') shoppingList.value = shoppingResult.value
+    else errors.shopping = getApiErrorMessage(shoppingResult.reason, '购物清单没有加载出来。')
+    if (fridgeResult.status === 'fulfilled') fridge.value = fridgeResult.value
+    else errors.fridge = getApiErrorMessage(fridgeResult.reason, '库存没有加载出来。')
+    sectionErrors.value = errors
+    if (announce) {
+      if (Object.keys(errors).length) toast.error('部分厨房信息刷新失败。')
+      else toast.success('首页已刷新。')
+    }
+  })().finally(() => { loading.value = false; refreshing.value = false; statusRequest = null })
+  return statusRequest
 }
 
-const isPlanned = computed(() => {
-  const meals = weekPlan.value?.meals || []
-  return meals.some((meal: any) => !!meal.meal1?.recipeId || !!meal.meal1?.name || !!meal.meal2?.recipeId || !!meal.meal2?.name)
-})
-
-const todayMeal = computed(() => {
-  if (!todayDate.value) return null
-  return (weekPlan.value?.meals || []).find((meal: any) => meal.date === todayDate.value) || null
-})
-
-const tomorrowMeal = computed(() => {
-  if (!todayDate.value) return null
-  const parts = todayDate.value.split('-').map(Number)
-  const tomorrow = new Date(parts[0]!, (parts[1] || 1) - 1, (parts[2] || 1) + 1)
-  const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
-  return (weekPlan.value?.meals || []).find((meal: any) => meal.date === tomorrowStr) || null
-})
-
-const todayRecipe = computed(() => {
-  if (!todayMeal.value?.meal1?.recipeId) return null
-  return recipes.value.find((recipe: any) => recipe.id === todayMeal.value.meal1.recipeId)
-})
-
-const bentoRecipe = computed(() => {
-  if (!todayMeal.value?.meal2?.recipeId) return null
-  return recipes.value.find((recipe: any) => recipe.id === todayMeal.value.meal2.recipeId)
-})
-
-const tomorrowRecipe = computed(() => {
-  if (!tomorrowMeal.value?.meal1?.recipeId) return null
-  return recipes.value.find((recipe: any) => recipe.id === tomorrowMeal.value.meal1.recipeId)
-})
-
-const tomorrowRecipe2 = computed(() => {
-  if (!tomorrowMeal.value?.meal2?.recipeId) return null
-  return recipes.value.find((recipe: any) => recipe.id === tomorrowMeal.value.meal2.recipeId)
-})
-
-const dinnerDone = computed(() => {
-  if (todayRecipe.value) {
-    return todayCookLogs.value.some((log: any) => log.recipeId === todayRecipe.value!.id)
-  }
-  // 文本菜名（无 recipeId）：有任意今天的记录视为完成
-  if (todayMeal.value?.meal1?.name) return todayCookLogs.value.length > 0
-  return false
-})
-
-const bentoDone = computed(() => {
-  if (bentoRecipe.value) {
-    return todayCookLogs.value.some((log: any) => log.recipeId === bentoRecipe.value!.id)
-  }
-  return false
-})
-
-const allDone = computed(() => {
-  if (!todayMeal.value?.meal1?.name) return false
-  if (!todayMeal.value?.meal2?.name || todayMeal.value.meal2.name === todayMeal.value.meal1?.name) {
-    return dinnerDone.value
-  }
-  return dinnerDone.value && bentoDone.value
-})
-
-const weekStats = computed(() => {
-  const meals = weekPlan.value?.meals || []
-  const activeMeals = meals.filter((meal: any) => meal.meal1?.status !== 'skipped')
-  const filled = activeMeals.filter((meal: any) => meal.meal1?.recipeId || meal.meal1?.name).length
-  return { filled, total: activeMeals.length, remaining: Math.max(activeMeals.length - filled, 0) }
-})
-
-const tonightIngredients = computed(() => {
-  const map = new Map<string, { name: string; amount: string; unit: string }>()
-  const addIngredients = (recipe: any) => {
-    if (!recipe?.ingredients) return
-    for (const ingredient of recipe.ingredients) {
-      if (!map.has(ingredient.name)) {
-        map.set(ingredient.name, { name: ingredient.name, amount: String(ingredient.amount || ''), unit: ingredient.unit || '' })
-      }
-    }
-  }
-  addIngredients(todayRecipe.value)
-  if (bentoRecipe.value?.id !== todayRecipe.value?.id) addIngredients(bentoRecipe.value)
-  return Array.from(map.values())
-})
-
-const THAW_KEYWORDS = ['肉', '鸡', '鱼', '虾', '牛', '猪', '排骨', '羊肉', '鸭', '蟹', '贝']
-
-const prepItems = computed(() => {
-  // 收集明天 meal1（晚餐）+ meal2（后天便当）的食材（去重）
-  const map = new Map<string, { name: string; amount: string; unit: string }>()
-  const addFromRecipe = (recipe: any) => {
-    if (!recipe?.ingredients) return
-    for (const ri of recipe.ingredients) {
-      const name = ri.name || ri.ingredient?.name
-      if (!name || map.has(name)) continue
-      map.set(name, { name, amount: String(ri.amount || ''), unit: ri.unit || '' })
-    }
-  }
-  addFromRecipe(tomorrowRecipe.value)
-  if (tomorrowRecipe2.value?.id !== tomorrowRecipe.value?.id) addFromRecipe(tomorrowRecipe2.value)
-
-  const all = Array.from(map.values())
-  const thaw: typeof all = []
-  const buy: typeof all = []
-
-  for (const item of all) {
-    const isMeat = THAW_KEYWORDS.some(k => item.name.includes(k))
-    const inFridge = fridgeNames.value.has(item.name)
-
-    if (isMeat && inFridge) {
-      thaw.push(item)
-    } else if (!inFridge && shoppingLoaded.value && shoppingUncheckedNames.value.has(item.name)) {
-      // 不在冰箱、购物清单已加载、且还未勾选（仍需购买）
-      buy.push(item)
-    }
-  }
-  return { thaw, buy }
-})
-
-const recommendations = computed(() => {
-  return homeRecommendations.value.length
-    ? homeRecommendations.value
-    : [...recipes.value].sort((a, b) => b.score - a.score).slice(0, 6)
-})
+const loadSecondaryContent = async () => {
+  recommendationsLoading.value = true
+  try { homeRecommendations.value = await recommendRecipes({ count: 4, profile: 'balanced', mealType: 'dinner', useFridge: true, enrichWithAI: true }) }
+  catch { homeRecommendations.value = [] }
+  finally { recommendationsLoading.value = false }
+  try { const result = await $fetch<{ tip: string }>('/api/ai/daily-tip'); aiTip.value = result.tip || '' }
+  catch { aiTipFailed.value = true }
+}
+const markImageFailed = (id: string) => { imageFailures.value = new Set(imageFailures.value).add(id) }
 
 onMounted(async () => {
   const now = new Date()
   todayDate.value = formatLocalDate(now)
   todayDisplay.value = now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
-
-  loading.value = true
-  const [recipeResult, tipResult, planResult, logResult, shoppingResult, fridgeResult] = await Promise.allSettled([
-    getRecipes(),
-    $fetch<any[]>('/api/tips'),
-    $fetch<any>('/api/week-plans/current'),
-    $fetch<any[]>('/api/cook-logs'),
-    getCurrentShoppingList(),
-    getFridge(),
-  ])
-
-  if (recipeResult.status === 'fulfilled') recipes.value = recipeResult.value as any[]
-  if (tipResult.status === 'fulfilled') tips.value = tipResult.value as any[]
-  if (planResult.status === 'fulfilled') weekPlan.value = planResult.value
-  if (logResult.status === 'fulfilled') {
-    todayCookLogs.value = logResult.value.filter((log: any) => log.date?.startsWith(todayDate.value))
-    hasCookLog.value = todayCookLogs.value.length > 0
-  }
-  if (shoppingResult.status === 'fulfilled') {
-    shoppingList.value = shoppingResult.value
-    // 提取未勾选的购物项名称
-    const items = Array.isArray(shoppingResult.value?.items) ? shoppingResult.value.items : []
-    shoppingUncheckedNames.value = new Set(items.filter((i: any) => !i.checked && !i.inStock).map((i: any) => i.name))
-    shoppingLoaded.value = true
-  }
-
-  // 检查即将过期的食材
-  if (fridgeResult.status === 'fulfilled') {
-    const fridge = fridgeResult.value as any
-    const allItems = [...(fridge.refrigerated || []), ...(fridge.frozen || []), ...(fridge.room_temp || [])]
-    fridgeNames.value = new Set(allItems.map((item: any) => item.name))
-    const now = new Date()
-    now.setHours(0, 0, 0, 0)
-    expiringItems.value = allItems
-      .filter((item: any) => item.expiryDate)
-      .map((item: any) => {
-        const diff = Math.ceil((new Date(item.expiryDate).getTime() - now.getTime()) / 86400000)
-        return { name: item.name, daysLeft: diff }
-      })
-      .filter((item: any) => item.daysLeft <= 3)
-      .sort((a: any, b: any) => a.daysLeft - b.daysLeft)
-  }
-
-  loading.value = false
-
-  // 推荐区域独立加载，不阻塞首页渲染
-  recommendRecipes({
-    count: 6,
-    profile: 'balanced',
-    mealType: 'dinner',
-    useFridge: true,
-    enrichWithAI: true,
-  }).then((result) => {
-    homeRecommendations.value = result
-  }).catch(() => { /* 静默失败，降级到本地排序 */ })
-
-  // AI 今日贴士
-  $fetch<{ tip: string }>('/api/ai/daily-tip').then((result) => {
-    if (result?.tip) aiTip.value = result.tip
-  }).catch(() => {})
-
-  // 切回标签页时刷新关键数据
-  if (import.meta.client) {
-    const onVisibilityChange = () => {
-      if (document.hidden) return
-      Promise.allSettled([
-        getRecipes(),
-        $fetch<any>('/api/week-plans/current'),
-        $fetch<any[]>('/api/cook-logs'),
-        getCurrentShoppingList(),
-        getFridge(),
-      ]).then(([recipeRes, planRes, logRes, shopRes, fridgeRes]) => {
-        if (recipeRes.status === 'fulfilled') recipes.value = recipeRes.value as any[]
-        if (planRes.status === 'fulfilled') weekPlan.value = planRes.value
-        if (logRes.status === 'fulfilled') {
-          todayCookLogs.value = logRes.value.filter((log: any) => log.date?.startsWith(todayDate.value))
-          hasCookLog.value = todayCookLogs.value.length > 0
-        }
-        if (shopRes.status === 'fulfilled') {
-          shoppingList.value = shopRes.value
-          const items = Array.isArray(shopRes.value?.items) ? shopRes.value.items : []
-          shoppingUncheckedNames.value = new Set(items.filter((i: any) => !i.checked && !i.inStock).map((i: any) => i.name))
-          shoppingLoaded.value = true
-        }
-        if (fridgeRes.status === 'fulfilled') {
-          const fridge = fridgeRes.value as any
-          const allItems = [...(fridge.refrigerated || []), ...(fridge.frozen || []), ...(fridge.room_temp || [])]
-          fridgeNames.value = new Set(allItems.map((item: any) => item.name))
-        }
-      })
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-  }
-
-  // SPA 导航回到首页时刷新关键数据
-  const route = useRoute()
-  watch(() => route.path, (path) => {
-    if (path !== '/') return
-    Promise.allSettled([
-      getRecipes(),
-      $fetch<any>('/api/week-plans/current'),
-      $fetch<any[]>('/api/cook-logs'),
-      getCurrentShoppingList(),
-      getFridge(),
-    ]).then(([recipeRes, planRes, logRes, shopRes, fridgeRes]) => {
-      if (recipeRes.status === 'fulfilled') recipes.value = recipeRes.value as any[]
-      if (planRes.status === 'fulfilled') weekPlan.value = planRes.value
-      if (logRes.status === 'fulfilled') {
-        todayCookLogs.value = logRes.value.filter((log: any) => log.date?.startsWith(todayDate.value))
-        hasCookLog.value = todayCookLogs.value.length > 0
-      }
-      if (shopRes.status === 'fulfilled') {
-        shoppingList.value = shopRes.value
-        const items = Array.isArray(shopRes.value?.items) ? shopRes.value.items : []
-        shoppingUncheckedNames.value = new Set(items.filter((i: any) => !i.checked && !i.inStock).map((i: any) => i.name))
-        shoppingLoaded.value = true
-      }
-      if (fridgeRes.status === 'fulfilled') {
-        const fridge = fridgeRes.value as any
-        const allItems = [...(fridge.refrigerated || []), ...(fridge.frozen || []), ...(fridge.room_temp || [])]
-        fridgeNames.value = new Set(allItems.map((item: any) => item.name))
-      }
-    })
-  })
+  await refreshHome()
+  void loadSecondaryContent()
 })
 </script>
 
 <template>
-  <div class="animate-fade-in">
-    <div v-if="loading" class="rounded-lg border border-gray-200 bg-white/75 p-8 text-center text-sm text-[#8B7D6B]">
-      正在看看今天厨房里有什么...
+  <div class="animate-fade-in pb-5">
+    <PageHeader title="今天的厨房" :description="todayDisplay || '正在确认今天的安排'">
+      <template #actions><AppButton variant="ghost" :loading="refreshing" @click="refreshHome({ announce: true })">刷新</AppButton></template>
+    </PageHeader>
+
+    <div v-if="loading" class="space-y-4" aria-live="polite" aria-label="正在加载首页">
+      <div class="h-64 animate-pulse rounded-[var(--radius-xl)] bg-[var(--color-surface-muted)]" />
+      <div class="grid gap-4 sm:grid-cols-3"><div v-for="index in 3" :key="index" class="h-28 animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-surface-muted)]" /></div>
     </div>
 
     <template v-else>
-    <template v-if="!isPlanned">
-      <section class="min-h-[50vh] flex items-center mb-12" data-testid="home-next-step">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 w-full items-center">
+      <AppNotice v-if="sectionErrors.plan || sectionErrors.logs" class="mb-5" tone="warning" title="有些信息暂时没取到" :message="sectionErrors.plan || sectionErrors.logs" />
+
+      <section class="relative overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-md)] sm:p-7 lg:p-9" data-testid="home-next-step" :data-home-state="homeState">
+        <div class="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[var(--color-accent-soft)] opacity-70 blur-3xl" />
+        <div class="relative grid gap-7 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,.7fr)] lg:items-center">
           <div>
-            <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">今日厨房</p>
-            <h1 class="text-4xl lg:text-5xl font-serif font-bold text-[#1a1714] leading-tight mb-4">
-              本周还没有规划，今晚想吃什么？
-            </h1>
-            <p class="text-lg text-[#8B7D6B] mb-8">翻翻想吃的，今晚就有着落。</p>
-            <div class="flex gap-3">
-              <NuxtLink to="/planner" class="px-6 py-3 bg-[#C06030] text-white rounded-lg font-medium hover:bg-[#A85028] transition-colors shadow-sm">
-                去规划本周
-              </NuxtLink>
-              <NuxtLink to="/recipes" class="px-6 py-3 bg-white text-[#8B7D6B] border border-gray-200 rounded-lg font-medium hover:bg-gray-50 transition-colors">
-                先看看菜谱
-              </NuxtLink>
+            <p class="mb-2 text-sm font-semibold text-[var(--color-accent)]">{{ stateCopy.eyebrow }}</p>
+            <h2 class="heading-serif max-w-2xl text-3xl leading-tight text-[var(--color-text)] sm:text-4xl lg:text-5xl">{{ stateCopy.title }}</h2>
+            <p class="mt-3 max-w-xl text-base leading-7 text-[var(--color-text-muted)]">{{ stateCopy.description }}</p>
+            <div class="mt-6 flex flex-wrap gap-3">
+              <AppButton :to="primaryAction.to" size="lg">{{ primaryAction.label }}</AppButton>
+              <AppButton v-if="homeState === 'unplanned'" to="/recipes" variant="secondary" size="lg">先看菜谱</AppButton>
+              <AppButton v-else-if="homeState === 'planned' && todayRecipe" :to="`/recipes/${todayRecipe.id}`" variant="secondary" size="lg">查看菜谱</AppButton>
+              <AppButton v-else-if="homeState === 'skipped'" to="/planner" variant="secondary" size="lg">调整安排</AppButton>
             </div>
           </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <NuxtLink v-for="recipe in recommendations.slice(0, 4)" :key="recipe.id" :to="`/recipes/${recipe.id}`" class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all">
-              <div class="aspect-[3/2] bg-gray-50">
-                <HandDrawnPlaceholder :tags="recipe.tags" aspect-ratio="3/2" class="w-full h-full" />
-              </div>
-              <div class="p-3">
-                <p class="text-sm font-medium truncate text-[#1a1714]">{{ recipe.name }}</p>
-                <p class="font-mono text-xs text-[#D86830] mt-1">{{ recipe.recommendationScore || recipe.score }}</p>
-                <p v-if="recipe.reason?.length" class="text-[11px] text-[#6D8B74] mt-1 line-clamp-1">{{ recipe.reason[0] }}</p>
-              </div>
+          <div v-if="todayRecipe && homeState !== 'skipped'" class="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-soft)]">
+            <div class="aspect-[4/3] overflow-hidden bg-[var(--color-surface-muted)]">
+              <img v-if="todayRecipe.coverPhotoUrl && !imageFailures.has(todayRecipe.id)" :src="todayRecipe.coverPhotoUrl" :alt="`${todayRecipe.name}的成品照片`" width="640" height="480" class="h-full w-full object-cover" @error="markImageFailed(todayRecipe.id)" />
+              <HandDrawnPlaceholder v-else :tags="todayRecipe.tags" :alt="`${todayRecipe.name}的手绘封面占位图`" aspect-ratio="4/3" class="h-full w-full" />
+            </div>
+            <div class="flex items-center justify-between gap-3 p-4"><p class="font-serif text-lg font-semibold text-[var(--color-text)]">{{ todayRecipe.name }}</p><span class="shrink-0 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">{{ todayRecipe.estimatedTime }} 分钟</span></div>
+          </div>
+          <div v-else-if="homeState === 'unplanned'" class="grid grid-cols-2 gap-3">
+            <NuxtLink v-for="recipe in recommendations.slice(0, 4)" :key="recipe.id" :to="`/recipes/${recipe.id}`" class="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-sm)]">
+              <div class="aspect-[4/3] bg-[var(--color-surface-muted)]"><img v-if="recipe.coverPhotoUrl && !imageFailures.has(recipe.id)" :src="recipe.coverPhotoUrl" :alt="`${recipe.name}的成品照片`" width="320" height="240" loading="lazy" class="h-full w-full object-cover" @error="markImageFailed(recipe.id)" /><HandDrawnPlaceholder v-else :tags="recipe.tags" :alt="`${recipe.name}的手绘封面占位图`" aspect-ratio="4/3" class="h-full w-full" /></div>
+              <p class="truncate px-3 py-2.5 text-sm font-semibold text-[var(--color-text)]">{{ recipe.name }}</p>
             </NuxtLink>
-          </div>
-        </div>
-      </section>
-    </template>
-
-    <template v-else>
-      <div class="flex items-end justify-between mb-6">
-        <div>
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-1 font-sans">今天先看这里</p>
-          <h1 class="text-3xl lg:text-4xl font-serif font-bold text-[#1a1714]">{{ todayMeal?.dayLabel || '今天' }}</h1>
-        </div>
-        <span class="font-mono text-sm text-[#8B7D6B]">{{ todayDisplay }}</span>
-      </div>
-
-      <!-- 今天不安排（跳过） -->
-      <section v-if="todayMeal?.meal1?.status === 'skipped'" class="mb-8">
-        <div class="bg-white rounded-2xl p-8 border border-dashed border-[#D8C9B8]">
-          <p class="text-xs text-[#A69080] uppercase tracking-widest mb-1">今日不安排</p>
-          <h2 class="text-3xl font-serif font-bold text-[#A69080] mb-3">{{ todayMeal.meal1.skipReason || '不安排' }}</h2>
-          <p class="text-sm text-[#B3A391]">今天不用做饭，好好享受吧。</p>
-        </div>
-      </section>
-
-      <!-- 今日待安排 -->
-      <section v-if="!todayMeal?.meal1?.name && todayMeal?.meal1?.status !== 'skipped'" class="mb-8">
-        <div class="bg-white rounded-2xl p-8 border border-gray-200">
-          <p class="text-xs text-[#A69080] uppercase tracking-widest mb-1">今日待安排</p>
-          <h2 class="text-3xl font-serif font-bold text-[#1a1714] mb-3">今天吃什么还没定</h2>
-          <p class="text-sm text-[#8B7D6B] mb-6">想好今晚吃什么了的话，随时可以加上。</p>
-          <NuxtLink to="/planner" class="inline-flex px-5 py-2.5 bg-[#C06030] text-white rounded-lg text-sm font-medium hover:bg-[#A85028] transition-colors">
-            去安排今天
-          </NuxtLink>
-        </div>
-      </section>
-
-      <!-- 全部完成 → 小条 + 备餐提醒升级为主角 -->
-      <section v-else-if="allDone" class="mb-6">
-        <div class="flex items-center justify-between rounded-lg bg-[#6D8B74]/5 border border-[#6D8B74]/15 px-4 py-3">
-          <p class="text-sm text-[#6D8B74] font-medium">今晚都做好了</p>
-          <NuxtLink to="/cook-logs" class="text-xs text-[#8B7D6B] hover:text-[#1a1714] transition-colors">查看记录</NuxtLink>
-        </div>
-      </section>
-
-      <!-- 晚餐已记录、便当未完成 → 便当递补 -->
-      <section v-else-if="hasCookLog" class="mb-6">
-        <div class="bg-gradient-to-br from-[#6D8B74]/10 to-[#C9A96E]/10 rounded-lg p-4 border border-[#6D8B74]/15 flex items-center justify-between">
-          <div>
-            <p class="text-xs text-[#A69080] uppercase tracking-widest mb-0.5">晚餐已记录</p>
-            <p class="font-serif font-bold text-[#1a1714]">{{ todayMeal.meal1.name }}</p>
-          </div>
-          <NuxtLink to="/cook-logs" class="px-3 py-1.5 bg-white border border-gray-200 text-[#8B7D6B] rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors">
-            查看记录
-          </NuxtLink>
-        </div>
-      </section>
-
-      <!-- 今日晚餐主体卡片（未记录时） -->
-      <template v-if="!hasCookLog && todayMeal?.meal1?.name">
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div>
-            <div class="bg-white rounded-lg border border-gray-200 p-1.5 shadow-sm rotate-[-1deg] mb-4">
-              <div class="aspect-[4/3] rounded-lg overflow-hidden relative bg-gray-50">
-                <HandDrawnPlaceholder :tags="todayRecipe?.tags || []" aspect-ratio="4/3" class="w-full h-full" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
-                <div class="absolute bottom-4 left-4 z-10 text-white">
-                  <span class="bg-[#B5838D] text-[10px] px-2.5 py-0.5 rounded-sm uppercase tracking-widest mb-2 inline-block font-sans font-semibold">今日晚餐</span>
-                  <h2 class="text-2xl sm:text-3xl font-serif font-bold leading-tight">{{ todayMeal.meal1.name }}</h2>
-                </div>
-              </div>
-            </div>
-            <div v-if="todayRecipe" class="flex items-center gap-4 text-sm text-[#8B7D6B]">
-              <span class="font-mono text-[#D86830] font-bold">{{ todayRecipe.score }}/10</span>
-              <span class="font-mono">{{ todayRecipe.estimatedTime }}min</span>
-              <span class="font-mono">做过 {{ todayRecipe.cookCount }} 次</span>
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-4">
-            <div class="flex flex-wrap gap-2">
-              <NuxtLink v-if="todayRecipe" :to="`/cook/${todayRecipe.id}`" class="px-4 py-2 bg-[#C06030] text-white rounded-lg text-sm font-medium hover:bg-[#A85028] transition-colors">
-                开始做饭
-              </NuxtLink>
-              <NuxtLink v-if="todayRecipe" :to="`/recipes/${todayRecipe.id}`" class="px-4 py-2 bg-white border border-gray-200 text-[#8B7D6B] rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                查看详情
-              </NuxtLink>
-              <NuxtLink to="/cook-logs" class="px-4 py-2 bg-white border border-gray-200 text-[#8B7D6B] rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                记录今日
-              </NuxtLink>
-            </div>
-          </div>
-        </section>
-      </template>
-
-      <!-- 晚餐已记录 + 便当未完成 → 便当递补为主体 -->
-      <template v-if="hasCookLog && !allDone && todayMeal?.meal2?.name && todayMeal.meal2.name !== todayMeal.meal1?.name">
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div>
-            <div class="bg-white rounded-lg border border-gray-200 p-1.5 shadow-sm rotate-[1deg] mb-4">
-              <div class="aspect-[4/3] rounded-lg overflow-hidden relative bg-gray-50">
-                <HandDrawnPlaceholder :tags="bentoRecipe?.tags || []" aspect-ratio="4/3" class="w-full h-full" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
-                <div class="absolute bottom-4 left-4 z-10 text-white">
-                  <span class="bg-[#7BA7C2] text-[10px] px-2.5 py-0.5 rounded-sm uppercase tracking-widest mb-2 inline-block font-sans font-semibold">次日便当</span>
-                  <h2 class="text-2xl sm:text-3xl font-serif font-bold leading-tight">{{ todayMeal.meal2.name }}</h2>
-                </div>
-              </div>
-            </div>
-            <div v-if="bentoRecipe" class="flex items-center gap-4 text-sm text-[#8B7D6B]">
-              <span class="font-mono text-[#D86830] font-bold">{{ bentoRecipe.score }}/10</span>
-              <span class="font-mono">{{ bentoRecipe.estimatedTime }}min</span>
-            </div>
-          </div>
-          <div class="flex flex-col gap-4">
-            <div class="flex flex-wrap gap-2">
-              <NuxtLink v-if="bentoRecipe" :to="`/cook/${bentoRecipe.id}`" class="px-4 py-2 bg-[#C06030] text-white rounded-lg text-sm font-medium hover:bg-[#A85028] transition-colors">
-                开始做饭
-              </NuxtLink>
-              <NuxtLink v-if="bentoRecipe" :to="`/recipes/${bentoRecipe.id}`" class="px-4 py-2 bg-white border border-gray-200 text-[#8B7D6B] rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                查看详情
-              </NuxtLink>
-            </div>
-          </div>
-        </section>
-      </template>
-
-      <!-- 次日便当卡片（晚餐未记录 + 便当不同菜） -->
-      <section v-if="!hasCookLog && todayMeal?.meal2?.name && todayMeal.meal2.name !== todayMeal.meal1?.name" class="mb-6">
-        <div class="bg-white rounded-lg border border-gray-200 p-5">
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-2">次日便当 · 今晚一起做</p>
-          <p class="text-xl font-serif font-bold text-[#1a1714] mb-1">{{ todayMeal.meal2.name }}</p>
-          <div v-if="bentoRecipe" class="flex items-center gap-3 mt-2 text-xs text-[#8B7D6B]">
-            <span class="font-mono text-[#D86830] font-bold">{{ bentoRecipe.score }}/10</span>
-            <span class="font-mono">{{ bentoRecipe.estimatedTime }}min</span>
-          </div>
-          <div v-if="bentoRecipe" class="flex gap-2 mt-3">
-            <NuxtLink :to="`/cook/${bentoRecipe.id}`" class="px-3 py-1.5 bg-[#C06030]/10 text-[#C06030] rounded-lg text-xs font-medium hover:bg-[#C06030]/20 transition-colors">
-              做饭步骤
-            </NuxtLink>
-            <NuxtLink :to="`/recipes/${bentoRecipe.id}`" class="px-3 py-1.5 bg-gray-100 text-[#6B5D4D] rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors">
-              查看详情
-            </NuxtLink>
-          </div>
-        </div>
-      </section>
-      <section v-else-if="!hasCookLog && todayMeal?.meal2?.name" class="mb-6">
-        <div class="bg-[#6D8B74]/5 rounded-lg border border-[#6D8B74]/15 p-4">
-          <p class="text-xs text-[#6D8B74] font-medium">次日便当和晚餐一样，多做一点就好</p>
-        </div>
-      </section>
-
-      <!-- 今晚食材（做饭完成后隐藏） -->
-      <section v-if="tonightIngredients.length && !allDone" class="mb-6">
-        <div class="bg-white rounded-lg border border-gray-200 p-5">
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">
-            今晚食材
-            <span v-if="todayMeal?.meal2?.name && todayMeal.meal2.name !== todayMeal.meal1?.name" class="font-normal normal-case tracking-normal text-[#8B7D6B]">（含便当）</span>
-          </p>
-          <div class="flex flex-wrap gap-1.5">
-            <span v-for="ingredient in tonightIngredients" :key="ingredient.name" class="px-2.5 py-1 bg-gray-100 text-[#6B5D4D] text-xs rounded-full">
-              {{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}
-            </span>
+            <p v-if="recommendationsLoading" class="col-span-2 text-center text-sm text-[var(--color-text-muted)]">正在挑几道合适的菜…</p>
           </div>
         </div>
       </section>
 
-      <!-- 备餐提醒（明天晚餐 + 后天便当） -->
-      <section v-if="prepItems.thaw.length || prepItems.buy.length" class="mb-6">
-        <div class="rounded-lg border p-5" :class="allDone ? 'border-[#C06030]/30 bg-gradient-to-br from-[#C06030]/5 to-[#D86830]/5 shadow-sm' : 'border-[#E3D6C8] bg-white'">
-          <p class="text-xs font-bold uppercase tracking-widest mb-1" :class="allDone ? 'text-[#C06030]' : 'text-[#A69080]'">明晚备餐</p>
-          <h3 class="font-serif text-lg font-bold text-[#1a1714] mb-3">
-            {{ tomorrowMeal?.meal1?.name || '' }}
-            <span v-if="tomorrowMeal?.meal2?.name && tomorrowMeal.meal2.name !== tomorrowMeal.meal1?.name" class="text-[#8B7D6B] font-normal text-base"> + {{ tomorrowMeal.meal2.name }}（便当）</span>
-          </h3>
-          <div v-if="prepItems.thaw.length" class="mb-3">
-            <p class="text-xs font-medium mb-2" :class="allDone ? 'text-[#D86830]' : 'text-[#D86830]'">🧊 今晚拿出来解冻</p>
-            <div class="flex flex-wrap gap-2">
-              <span v-for="item in prepItems.thaw" :key="item.name" class="px-3 py-1.5 bg-[#D86830]/10 text-[#D86830] rounded-full font-medium" :class="allDone ? 'text-sm' : 'text-xs'">
-                {{ item.name }}
-              </span>
-            </div>
-          </div>
-          <div v-if="prepItems.buy.length" class="mb-3">
-            <p class="text-xs font-medium mb-2" :class="allDone ? 'text-[#8B7D6B]' : 'text-[#8B7D6B]'">🛒 还没买</p>
-            <div class="flex flex-wrap gap-2">
-              <span v-for="item in prepItems.buy" :key="item.name" class="px-3 py-1.5 bg-gray-100 text-[#6B5D4D] rounded-full" :class="allDone ? 'text-sm' : 'text-xs'">
-                {{ item.name }}
-              </span>
-            </div>
-          </div>
-          <NuxtLink to="/planner" class="inline-flex items-center gap-1.5 mt-1 text-sm font-medium text-[#C06030] hover:text-[#A85028] transition-colors">
-            去清单看看
-            <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
-          </NuxtLink>
-        </div>
+      <section class="mt-5 grid gap-4 sm:grid-cols-3" aria-label="今天的三个关键信息">
+        <article class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <p class="text-sm font-semibold text-[var(--color-text-muted)]">今天吃什么</p><p class="mt-2 font-serif text-xl font-semibold text-[var(--color-text)]">{{ primarySlot?.name || (homeState === 'skipped' ? '今天不做饭' : '还没安排') }}</p><p v-if="secondarySlot?.name && secondarySlot.name !== primarySlot?.name" class="mt-1 text-sm text-[var(--color-text-muted)]">另做：{{ secondarySlot.name }}</p>
+        </article>
+        <article class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <p class="text-sm font-semibold text-[var(--color-text-muted)]">现在做什么</p><p class="mt-2 font-serif text-xl font-semibold text-[var(--color-text)]">{{ homeState === 'planned' ? '准备食材，开始做饭' : homeState === 'cooked-unrecorded' ? '补照片或感受' : homeState === 'complete' ? '休息一下' : homeState === 'skipped' ? '享受今晚' : '先定一道菜' }}</p>
+        </article>
+        <article class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <p class="text-sm font-semibold text-[var(--color-text-muted)]">还缺什么</p><p class="mt-2 font-serif text-xl font-semibold text-[var(--color-text)]">{{ missingItems.length ? `还有 ${missingItems.length} 样待确认` : sectionErrors.shopping || sectionErrors.fridge ? '暂时无法确认' : '目前没有缺项' }}</p><NuxtLink v-if="missingItems.length" to="/planner" class="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--color-accent)]">去购物清单</NuxtLink>
+        </article>
       </section>
 
-      <!-- 即将过期 -->
-      <section v-if="expiringItems.length" class="mb-6">
-        <div class="rounded-lg border border-orange-200 bg-orange-50/50 p-4">
-          <p class="text-xs font-bold text-orange-700 mb-2">⚠️ 即将过期</p>
-          <div class="flex flex-wrap gap-1.5">
-            <span v-for="item in expiringItems" :key="item.name" class="rounded-full px-2 py-0.5 text-xs" :class="item.daysLeft < 0 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'">
-              {{ item.name }} {{ item.daysLeft < 0 ? '已过期' : item.daysLeft + '天' }}
-            </span>
-          </div>
-          <NuxtLink to="/ingredients" class="inline-block mt-2 text-xs text-orange-700 hover:text-orange-900">去冰箱看看</NuxtLink>
-        </div>
+      <section v-if="missingItems.length || tonightIngredients.length" class="mt-6 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div class="flex flex-wrap items-end justify-between gap-2"><div><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">今晚要用的食材</h2><p class="mt-1 text-sm text-[var(--color-text-muted)]">缺项优先显示，家里有的也保留在这里方便核对。</p></div><NuxtLink to="/ingredients" class="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--color-accent)]">查看库存</NuxtLink></div>
+        <div class="mt-4 flex flex-wrap gap-2"><span v-for="item in tonightIngredients" :key="item.name" class="rounded-full border px-3 py-2 text-sm" :class="missingItems.some(missing => missing.name === item.name) ? 'border-[var(--color-warning)] bg-[var(--color-warning-soft)] text-[var(--color-text)]' : 'border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-text-muted)]'">{{ item.name }} {{ item.amount }}{{ item.unit }}</span></div>
       </section>
 
-      <!-- 周统计 -->
-      <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div class="bg-white rounded-lg border border-gray-200 p-5 text-center">
-          <p class="font-mono text-3xl font-bold text-[#1a1714]">{{ weekStats.filled }}</p>
-          <p class="text-xs text-[#A69080] mt-1">已规划</p>
-        </div>
-        <div class="bg-white rounded-lg border border-gray-200 p-5 text-center">
-          <p class="font-mono text-3xl font-bold text-[#D86830]">{{ weekStats.remaining }}</p>
-          <p class="text-xs text-[#A69080] mt-1">待安排</p>
-        </div>
-        <div class="bg-white rounded-lg border border-gray-200 p-5 text-center">
-          <p class="font-mono text-3xl font-bold text-[#6D8B74]">{{ hasCookLog ? '已记' : '待记' }}</p>
-          <p class="text-xs text-[#A69080] mt-1">今日记录</p>
-        </div>
+      <section v-if="expiringItems.length" class="mt-6 rounded-[var(--radius-lg)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">这些食材快到期了</h2><p class="mt-1 text-sm text-[var(--color-text-muted)]">优先用掉，比临时加任务更轻松。</p></div><NuxtLink to="/ingredients" class="inline-flex min-h-11 items-center font-semibold text-[var(--color-accent)]">去库存看看</NuxtLink></div>
+        <div class="mt-3 flex flex-wrap gap-2"><span v-for="item in expiringItems" :key="item.id" class="rounded-full bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]">{{ item.name }} · {{ item.daysLeft < 0 ? '已过期' : item.daysLeft === 0 ? '今天到期' : item.daysLeft + ' 天' }}</span></div>
       </section>
-    </template>
 
-    <div v-if="aiTip" class="mt-6 mb-2">
-      <div class="rounded-lg border border-[#E3D6C8] bg-white/80 px-5 py-3 flex items-start gap-3">
-        <span class="text-lg mt-0.5">💡</span>
-        <div>
-          <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-0.5">今日贴士</p>
-          <p class="text-sm text-[#6B5D4D]">{{ aiTip }}</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-8">
-      <TipCarousel :tips="tips" />
-    </div>
+      <section class="mt-8 grid gap-5 lg:grid-cols-[1fr_1.6fr]">
+        <article class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-5"><p class="text-sm font-semibold text-[var(--color-accent)]">厨房小贴士</p><p class="mt-2 leading-7 text-[var(--color-text)]">{{ aiTip || fallbackTip }}</p><p v-if="aiTipFailed" class="mt-2 text-xs text-[var(--color-text-faint)]">智能贴士暂时休息，先显示本地小贴士。</p></article>
+        <div><div class="mb-3 flex items-end justify-between gap-3"><div><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">换个口味</h2><p class="mt-1 text-sm text-[var(--color-text-muted)]">只是备选，不打扰今天的主流程。</p></div><NuxtLink to="/recipes" class="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--color-accent)]">全部菜谱</NuxtLink></div><div class="grid grid-cols-2 gap-3 sm:grid-cols-4"><NuxtLink v-for="recipe in recommendations.slice(0, 4)" :key="recipe.id" :to="`/recipes/${recipe.id}`" class="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3"><p class="truncate font-semibold text-[var(--color-text)]">{{ recipe.name }}</p><p class="mt-1 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">{{ recipe.estimatedTime }} 分钟 · {{ recipe.score }} 分</p></NuxtLink></div></div>
+      </section>
     </template>
   </div>
 </template>

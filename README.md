@@ -1,52 +1,66 @@
 # 猪猪家的厨房
 
-Zhuzhu's Home Kitchen 是给家里两个人长期使用的小厨房应用。它不追求把功能堆得很满，而是把一周想吃什么、需要买什么、今晚怎么做、做完有什么感受这些日常小事收在一起。
+Zhuzhu's Home Kitchen 是给家里两个人长期使用的小厨房应用。它把一周想吃什么、需要买什么、今晚怎么做，以及做完后的照片和感受，安静地收在同一本“厨房小本子”里。
 
-当前版本已经完成第一轮成品化收尾：登录保护、签名会话、双人固定账号、菜谱、食材、周计划内购物清单、做饭模式、做饭记录、图片上传、推荐、成就、PWA、备份恢复和测试流程都已经落地。后续重点会转向真实日用后的文案、动线、移动端体验和长期维护。
+当前版本已完成面向日常使用的深度打磨：暖色浅色设计系统、移动端核心动线、统一状态反馈、无障碍与触控优化、类型化数据层、独立 E2E 环境，以及可验证、可持久化的 Docker 部署链路均已落地。
 
 ## 当前能力
 
-- 菜谱：搜索、筛选、随机一道、新建、编辑、封面图上传。
-- 计划：按当前周安排晚餐和便当，支持切换上/下周、标记不安排日，计划页内可生成购物清单。
-- 购物：合并食材、勾选、标记家里已有、临时添加，和计划待在同一页。
-- 做饭：全屏步骤、进度、倒计时，完成后生成记录。
-- 记录：评分、备注、多图上传、历史回看，做过次数保持一致。
-- 食材：分类、库存、线稿图、关联菜谱和替代关系。
-- 推荐：结合近期重复、评分、库存、耗时和偏好给出推荐理由。
-- PWA：manifest、图标、离线页和基础缓存。
-- 维护：备份、恢复演练、健康检查、权限控制和质量检查脚本。
+- 首页：围绕今天的安排、下一步和缺少的食材提供清晰状态与主操作。
+- 菜谱：搜索、筛选、随机一道、新建、编辑、封面上传和做过记录。
+- 计划与购物：一周晚餐/便当安排、AI 补空位、购物清单生成、勾选和库存确认。
+- 食材与库存：分类浏览、库存状态、临期提示、关联菜谱和线稿管理。
+- 做饭与记录：全屏步骤、计时与进度恢复，完成后快速记录、上传照片和打卡。
+- 回顾：旅程、成就、图谱和海报导出等低频能力按需呈现。
+- 运维：登录权限、SQLite 迁移、健康检查、备份恢复、Docker smoke 和完整质量检查。
 
 ## 本地启动
 
-```bash
-npm install
+```powershell
+npm.cmd install
 npm.cmd exec prisma generate
 npm.cmd exec prisma migrate deploy
 npm.cmd exec prisma db seed
-npm run dev
+npm.cmd run dev
 ```
 
-本地地址：[http://localhost:3000](http://localhost:3000)
+本地开发地址：[http://localhost:4789](http://localhost:4789)。
 
-账号、密钥和迁移步骤见 [部署与运维](docs/operations/DEPLOYMENT.md)。放到家用服务器前请设置自己的密码和 `AUTH_SECRET`。
+## Docker 快速启动
+
+首次部署先创建独立生产配置，并确保密码不是示例默认值：
+
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env：填写 AUTH_SECRET（至少 32 位）、两个账号密码和可选 AI 配置
+npm.cmd run export:docker-data
+npm.cmd run docker:smoke
+docker compose config
+docker compose up -d --build
+docker compose ps
+```
+
+Linux / NAS 可将 `Copy-Item` 换成 `cp`，将 `npm.cmd` 换成 `npm`。默认端口为 `41832`，可通过 `.env` 中的 `APP_PORT` 修改。
+
+`docker-data/` 是完整持久化目录，包含 SQLite、上传图、原图、运行时线稿和服务端设置。上传图片与运行时线稿由显式服务端路由提供，不依赖构建时的 `.output/public`。
 
 ## 常用命令
 
-```bash
-npm run check:mojibake
-npm run lint
-npm run typecheck
-npm run test
-npm run test:e2e
-npm run build
-npm run backup
-npm run verify:backup
-npm run restore:drill
-npm run export:docker-data
-npm run docker:smoke
+```powershell
+npm.cmd run check:mojibake
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test
+npm.cmd run test:e2e
+npm.cmd run build
+npm.cmd run backup
+npm.cmd run verify:backup
+npm.cmd run restore:drill
+npm.cmd run export:docker-data
+npm.cmd run docker:smoke
 ```
 
-迁移到 Docker 时，`docker-data/` 是完整搬家目录。导出脚本会把当前数据库、上传图、原图备份和 server data 放进去，并用 manifest 记录全表行数和媒体引用，`docker:smoke` 会先做数据级校验。
+账号、密钥、权限、迁移、备份和回滚步骤见 [部署与运维](docs/operations/DEPLOYMENT.md)。
 
 ## 文档入口
 
@@ -56,5 +70,4 @@ npm run docker:smoke
 - [架构说明](docs/engineering/ARCHITECTURE.md)
 - [成品化与运维方案](docs/engineering/PRODUCTIONIZATION_PLAN.md)
 - [部署与运维](docs/operations/DEPLOYMENT.md)
-- [NiniMenu 借鉴报告](docs/reference/NINIMENU_BENCHMARK.md)
-- [代码与文档综合观察](CODE_REVIEW_DISCOVERY.md)
+- [部署方式选择](docs/operations/HOSTING_OPTIONS.md)

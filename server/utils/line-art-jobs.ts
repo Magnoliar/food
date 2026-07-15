@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { resolve } from 'path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { prisma } from './prisma'
+import { getRuntimePaths } from './runtime-paths'
 import { xyqPollResult } from './xyq-client'
 
-const HISTORY_PATH = resolve(process.cwd(), 'server/data/line-art-history.json')
+const getHistoryPath = () => getRuntimePaths().lineArtHistoryFile
 const POLLING_TIMEOUT_MS = 10 * 60 * 1000
 
 export type LineArtJobStatus = 'pending' | 'polling' | 'done' | 'failed'
@@ -186,8 +187,9 @@ export async function startPolling(jobId: string, threadId: string, runId: strin
           const safeName = job.ingredientName.replace(/[^a-zA-Z0-9一-鿿]/g, '_')
           const shortId = job.id.slice(0, 8)
           const filename = `${safeName}_${shortId}_${i + 1}.jpg`
-          mkdirSync(resolve(process.cwd(), 'public/line-arts'), { recursive: true })
-          const localPath = resolve(process.cwd(), 'public/line-arts', filename)
+          const lineArtsDir = getRuntimePaths().lineArtsDir
+          mkdirSync(lineArtsDir, { recursive: true })
+          const localPath = path.resolve(lineArtsDir, filename)
           const webPath = `/line-arts/${filename}`
 
           const resp = await fetch(remoteUrl)
@@ -245,7 +247,9 @@ function appendHistory(entry: HistoryEntry) {
   try {
     const history = getHistory()
     history.push(entry)
-    writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2), 'utf-8')
+    const historyPath = getHistoryPath()
+    mkdirSync(path.dirname(historyPath), { recursive: true })
+    writeFileSync(historyPath, JSON.stringify(history, null, 2), 'utf-8')
   } catch (e) {
     console.warn('Failed to write line art history:', e)
   }
@@ -253,8 +257,8 @@ function appendHistory(entry: HistoryEntry) {
 
 export function getHistory(): HistoryEntry[] {
   try {
-    if (existsSync(HISTORY_PATH)) {
-      return JSON.parse(readFileSync(HISTORY_PATH, 'utf-8'))
+    if (existsSync(getHistoryPath())) {
+      return JSON.parse(readFileSync(getHistoryPath(), 'utf-8'))
     }
   } catch {}
   return []

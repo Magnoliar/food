@@ -1,232 +1,85 @@
 <script setup lang="ts">
-const { getRecipes } = useApi()
-
-const recipes = ref<any[]>([])
-const tips = ref<any[]>([])
-const tagsByDimension = ref<Record<string, any[]>>({})
-
+const { recipes, tips, tagsByDimension, apiLoaded, kitchenRefreshing, kitchenErrors, loadFromApi, refresh } = useKitchenData()
+const { error: showError } = useToast()
 const searchQuery = ref('')
 const selectedTags = ref<string[]>([])
 const filterExpanded = ref(false)
-const filteredSort = ref('')
-const viewMode = ref<'grid' | 'category'>('grid')
+const filteredSort = ref<'score' | 'cookCount' | ''>('')
 const activeCategory = ref('')
 
-const loadPageData = async () => {
-  const [recipesResult, tipsResult, tagsResult] = await Promise.allSettled([
-    getRecipes(),
-    $fetch<any[]>('/api/tips'),
-    $fetch<Record<string, any[]>>('/api/tags'),
-  ])
-
-  if (recipesResult.status === 'fulfilled' && recipesResult.value) recipes.value = recipesResult.value
-  if (tipsResult.status === 'fulfilled' && tipsResult.value) tips.value = tipsResult.value
-  if (tagsResult.status === 'fulfilled' && tagsResult.value) tagsByDimension.value = tagsResult.value
-}
-
-onMounted(loadPageData)
-onServerPrefetch(loadPageData)
+await loadFromApi()
 
 const categoryTree = computed(() => {
-  const cats: Record<string, { label: string; count: number; children: Record<string, number> }> = {}
-  for (const r of recipes.value) {
-    const cat = r.category || '其他'
-    if (!cats[cat]) cats[cat] = { label: cat, count: 0, children: {} }
-    cats[cat].count++
-    for (const tag of (r.tags || [])) {
-      if (['炒', '炖', '蒸', '烤', '炸', '拌', '煎', '焖'].includes(tag)) {
-        cats[cat].children[tag] = (cats[cat].children[tag] || 0) + 1
-      }
-    }
-  }
-  return Object.entries(cats)
-    .sort((a, b) => b[1].count - a[1].count)
-    .map(([key, val]) => ({ key, ...val }))
+  const counts = new Map<string, number>()
+  for (const recipe of recipes.value) counts.set(recipe.category || '其他', (counts.get(recipe.category || '其他') || 0) + 1)
+  return [...counts].map(([key, count]) => ({ key, label: key, count })).sort((a, b) => b.count - a.count)
 })
-
-const quickFilters = [
-  { label: '最高评分', action: () => { filteredSort.value = filteredSort.value === 'score' ? '' : 'score' } },
-  { label: '做过最多', action: () => { filteredSort.value = filteredSort.value === 'cookCount' ? '' : 'cookCount' } },
-  { label: '快手菜', action: () => { toggleTag('快手') } },
-  { label: '便当友好', action: () => { toggleTag('便当友好') } },
-  { label: '下饭菜', action: () => { toggleTag('下饭菜') } },
-]
-
 const ingredientFamilyMap: Record<string, string[]> = {
-  '猪肉类': ['猪肉', '五花肉', '排骨', '猪里脊', '猪肉末', '猪肉丝', '猪肉片', '猪蹄', '猪肚', '猪腰', '猪肝', '猪小排', '培根', '午餐肉', '腊肠', '肉肠'],
-  '牛肉类': ['牛肉', '牛腩', '牛里脊', '肥牛', '黄牛肉'],
-  '海鲜类': ['虾', '虾仁', '罗氏虾', '鱼', '鲫鱼', '蟹', '扇贝肉', '黑鱼片', '虾米'],
-  '鸡肉类': ['鸡肉', '鸡腿', '三黄鸡', '鸭子', '鸭血'],
-  '蔬菜类': ['番茄', '土豆', '白菜', '小白菜', '娃娃菜', '生菜', '青椒', '洋葱', '蘑菇', '口蘑', '杏鲍菇', '豆腐', '嫩豆腐', '黄瓜', '四季豆', '西兰花', '花菜', '胡萝卜', '南瓜', '莴笋', '茄子', '豆芽', '金针菇', '笋'],
-  '主食类': ['面条', '米饭', '米线', '意面', '河粉', '粉丝', '螺蛳粉', '吐司', '手抓饼皮', '魔芋丝', '西米', '中筋面粉', '低筋面粉', '粘米粉'],
+  猪肉类: ['猪肉', '五花肉', '排骨', '里脊', '肉末'], 牛肉类: ['牛肉', '牛腩', '肥牛'], 海鲜类: ['虾', '鱼', '蟹', '扇贝'],
+  鸡肉类: ['鸡肉', '鸡腿', '鸭'], 蔬菜类: ['番茄', '土豆', '白菜', '青椒', '蘑菇', '豆腐', '黄瓜', '茄子'],
+  主食类: ['面条', '米饭', '米线', '意面', '粉丝', '吐司', '面粉'],
 }
-
 const filteredRecipes = computed(() => {
-  let result = recipes.value
-
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    result = result.filter(r =>
-      r.name.toLowerCase().includes(q) ||
-      r.tags.some((t: string) => t.toLowerCase().includes(q)) ||
-      r.ingredients?.some((i: any) => i.name.toLowerCase().includes(q)),
-    )
-  }
-
-  if (selectedTags.value.length) {
-    result = result.filter(r =>
-      selectedTags.value.every(tag => {
-        if (r.tags.includes(tag)) return true
-        const familyKeywords = ingredientFamilyMap[tag]
-        if (familyKeywords) {
-          return r.ingredients?.some((ing: any) => familyKeywords.some(kw => ing.name.includes(kw)))
-        }
-        return false
-      }),
-    )
-  }
-
-  if (activeCategory.value) {
-    result = result.filter(r => r.category === activeCategory.value)
-  }
-
+  const query = searchQuery.value.trim().toLocaleLowerCase('zh-CN')
+  let result = recipes.value.filter((recipe) => {
+    if (activeCategory.value && recipe.category !== activeCategory.value) return false
+    if (query && ![recipe.name, ...recipe.tags, ...recipe.ingredients.map(item => item.name)].some(text => text.toLocaleLowerCase('zh-CN').includes(query))) return false
+    return selectedTags.value.every((tag) => recipe.tags.includes(tag) || ingredientFamilyMap[tag]?.some(keyword => recipe.ingredients.some(item => item.name.includes(keyword))))
+  })
   if (filteredSort.value === 'score') result = [...result].sort((a, b) => b.score - a.score)
-  else if (filteredSort.value === 'cookCount') result = [...result].sort((a, b) => b.cookCount - a.cookCount)
-
+  if (filteredSort.value === 'cookCount') result = [...result].sort((a, b) => b.cookCount - a.cookCount)
   return result
 })
-
-const listWithTips = computed(() => {
-  const items: Array<{ type: 'recipe' | 'tip'; data: any }> = []
-  filteredRecipes.value.forEach((r, i) => {
-    items.push({ type: 'recipe', data: r })
-    if ((i + 1) % 5 === 0 && tips.value[Math.floor(i / 5)]) {
-      items.push({ type: 'tip', data: tips.value[Math.floor(i / 5)] })
-    }
-  })
-  return items
-})
-
-const toggleTag = (tagName: string) => {
-  const idx = selectedTags.value.indexOf(tagName)
-  if (idx >= 0) selectedTags.value.splice(idx, 1)
-  else selectedTags.value.push(tagName)
-}
-
-const clearTags = () => {
-  selectedTags.value = []
-  filteredSort.value = ''
-}
-
-const randomRecipe = () => {
-  const pool = filteredRecipes.value.length ? filteredRecipes.value : recipes.value
-  if (!pool.length) return
-  const r = pool[Math.floor(Math.random() * pool.length)]
-  navigateTo(`/recipes/${r.id}`)
-}
-
-const libraryStats = computed(() => {
-  const rs = recipes.value
-  const totalCooked = rs.reduce((s: number, r: any) => s + (r.cookCount || 0), 0)
-  const avgScore = rs.length ? (rs.reduce((s: number, r: any) => s + (r.score || 0), 0) / rs.length).toFixed(1) : '0'
-  const topCuisine = (() => {
-    const counts: Record<string, number> = {}
-    rs.forEach((r: any) => { if (r.category) counts[r.category] = (counts[r.category] || 0) + 1 })
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'
-  })()
-  const favorite = rs.reduce((best: any, r: any) => (!best || r.cookCount > best.cookCount) ? r : best, null)
-  return { total: rs.length, totalCooked, avgScore, topCuisine, favorite: favorite?.name || '-' }
-})
+const filtersActive = computed(() => !!searchQuery.value || !!activeCategory.value || !!filteredSort.value || selectedTags.value.length > 0)
+const toggleTag = (tag: string) => { const index = selectedTags.value.indexOf(tag); if (index >= 0) selectedTags.value.splice(index, 1); else selectedTags.value.push(tag) }
+const clearFilters = () => { searchQuery.value = ''; selectedTags.value = []; filteredSort.value = ''; activeCategory.value = '' }
+const toggleSort = (sort: 'score' | 'cookCount') => { filteredSort.value = filteredSort.value === sort ? '' : sort }
+const randomRecipe = async () => { const pool = filteredRecipes.value.length ? filteredRecipes.value : recipes.value; const item = pool[Math.floor(Math.random() * pool.length)]; if (item) await navigateTo(`/recipes/${item.id}`) }
+const libraryStats = computed(() => ({ total: recipes.value.length, cooked: recipes.value.reduce((sum, recipe) => sum + recipe.cookCount, 0), favorite: [...recipes.value].sort((a, b) => b.cookCount - a.cookCount)[0]?.name || '还没有' }))
+const retry = async () => { const result = await refresh(); if (!result.ok) showError('菜谱还是没有加载成功，请稍后再试。') }
+const tip = computed(() => tips.value[0])
 </script>
 
 <template>
   <div class="animate-fade-in">
-    <div class="flex items-end justify-between mb-6">
-      <div>
-        <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-1 font-sans">Recipe Collection</p>
-        <h1 class="text-3xl lg:text-4xl font-serif font-bold text-[#1a1714]">菜谱库</h1>
-      </div>
-      <div class="flex gap-2">
-        <button
-          class="flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 text-[#8B7D6B] hover:text-[#1a1714] hover:border-gray-400 transition-all text-sm"
-          @click="randomRecipe"
-        >随机一道</button>
-        <NuxtLink to="/recipes/new" class="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#C06030] text-white hover:bg-[#A85028] transition-all text-sm shadow-sm">
-          新建菜谱
-        </NuxtLink>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-      <div class="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
-        <p class="font-mono text-xl font-bold text-[#1a1714]">{{ libraryStats.total }}</p>
-        <p class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest">总菜谱</p>
-      </div>
-      <div class="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
-        <p class="font-mono text-xl font-bold text-[#1a1714]">{{ libraryStats.totalCooked }}</p>
-        <p class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest">总烹饪次数</p>
-      </div>
-      <div class="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
-        <p class="font-mono text-xl font-bold text-[#D86830]">{{ libraryStats.avgScore }}</p>
-        <p class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest">平均分</p>
-      </div>
-      <div class="bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
-        <p class="text-lg font-bold text-[#1a1714] truncate">{{ libraryStats.favorite }}</p>
-        <p class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest">最爱做</p>
-      </div>
-    </div>
-
-    <div class="mb-6">
-      <div class="flex items-center gap-3 mb-3">
-        <div class="flex gap-1 p-1 bg-gray-100 rounded-lg">
-          <button class="px-3 py-1.5 rounded-md text-xs font-medium transition-all" :class="viewMode === 'grid' ? 'bg-white text-[#1a1714] shadow-sm' : 'text-[#8B7D6B]'" @click="viewMode = 'grid'; activeCategory = ''">全部</button>
-          <button class="px-3 py-1.5 rounded-md text-xs font-medium transition-all" :class="viewMode === 'category' ? 'bg-white text-[#1a1714] shadow-sm' : 'text-[#8B7D6B]'" @click="viewMode = 'category'">按分类</button>
-        </div>
-      </div>
-
-      <div v-if="viewMode === 'category'" class="flex flex-wrap gap-2">
-        <button class="px-3 py-1.5 rounded-full text-xs font-medium transition-all border" :class="!activeCategory ? 'bg-[#3D3530] text-white border-[#3D3530]' : 'bg-white text-[#8B7D6B] border-gray-200 hover:bg-gray-50'" @click="activeCategory = ''">
-          全部 ({{ recipes.length }})
-        </button>
-        <button v-for="cat in categoryTree" :key="cat.key" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all border" :class="activeCategory === cat.key ? 'bg-[#3D3530] text-white border-[#3D3530]' : 'bg-white text-[#8B7D6B] border-gray-200 hover:bg-gray-50'" @click="activeCategory = activeCategory === cat.key ? '' : cat.key">
-          {{ cat.label }} ({{ cat.count }})
-        </button>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-3 mb-4">
-      <div class="relative flex-1 max-w-md">
-        <input v-model="searchQuery" type="text" placeholder="搜索菜名、食材、标签..." class="w-full pl-11 pr-4 py-2.5 bg-white rounded-full border border-gray-200 text-sm text-[#1a1714] placeholder:text-[#A69080]/50 focus:outline-none focus:border-[#3D3530] shadow-sm" />
-      </div>
-      <button class="px-4 py-2.5 rounded-full border text-sm transition-all flex items-center gap-1.5" :class="filterExpanded ? 'bg-[#3D3530] text-white border-[#3D3530]' : 'bg-white text-[#8B7D6B] border-gray-200 hover:bg-gray-50'" @click="filterExpanded = !filterExpanded">
-        筛选
-      </button>
-    </div>
-
-    <div class="flex flex-wrap gap-2 mb-4">
-      <button v-for="qf in quickFilters" :key="qf.label" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all" :class="selectedTags.includes(qf.label) || (qf.label === '最高评分' && filteredSort === 'score') || (qf.label === '做过最多' && filteredSort === 'cookCount') ? 'bg-[#A69080] text-white' : 'bg-gray-100 text-[#8B7D6B] hover:bg-gray-200'" @click="qf.action()">
-        {{ qf.label }}
-      </button>
-      <button v-if="selectedTags.length || filteredSort" class="px-3 py-1.5 rounded-full text-xs text-[#A69080] hover:text-[#1a1714] transition-colors" @click="clearTags">
-        清除
-      </button>
-    </div>
-
-    <div v-if="filterExpanded" class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-      <TagFilter :tags="tagsByDimension" :selected="selectedTags" @toggle="toggleTag" @clear="clearTags" />
-    </div>
-
-    <p class="text-xs text-[#A69080] mb-4 font-mono">{{ filteredRecipes.length }} 道菜谱</p>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-      <template v-for="item in listWithTips" :key="item.data.id || item.data.title">
-        <RecipeCard v-if="item.type === 'recipe'" :recipe="item.data" />
-        <div v-else class="bg-white rounded-lg p-5 border border-gray-200 shadow-sm relative">
-          <div class="absolute -top-1.5 -right-1 bg-[#D86830] text-white text-[9px] px-2.5 py-0.5 rotate-2 rounded-sm shadow-sm tracking-wider font-bold">TIP</div>
-          <h4 class="text-lg font-bold text-[#1a1714] mb-2">{{ item.data.title }}</h4>
-          <p class="text-base text-[#4A3D2E] leading-relaxed line-clamp-4">{{ item.data.content }}</p>
-        </div>
+    <PageHeader title="菜谱" description="想吃什么就搜，常做的菜也可以慢慢整理得更顺手。">
+      <template #actions>
+        <AppButton variant="secondary" @click="randomRecipe">随机一道</AppButton>
+        <AppButton to="/recipes/new">新建菜谱</AppButton>
       </template>
+    </PageHeader>
+
+    <section class="mb-6 rounded-[var(--radius-xl)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-sm)] sm:p-5" aria-label="搜索与筛选">
+      <label class="field-label" for="recipe-search">搜索菜谱</label>
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <input id="recipe-search" v-model="searchQuery" type="search" class="field-control flex-1" placeholder="菜名、食材或标签" autocomplete="off" />
+        <AppButton variant="secondary" :aria-expanded="filterExpanded" @click="filterExpanded = !filterExpanded">{{ filterExpanded ? '收起筛选' : '更多筛选' }}</AppButton>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-2" aria-label="常用筛选">
+        <button class="touch-target rounded-lg px-3 text-sm transition" :class="filteredSort === 'score' ? 'bg-[var(--color-text)] text-white' : 'bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]'" @click="toggleSort('score')">评分高</button>
+        <button class="touch-target rounded-lg px-3 text-sm transition" :class="filteredSort === 'cookCount' ? 'bg-[var(--color-text)] text-white' : 'bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]'" @click="toggleSort('cookCount')">常做</button>
+        <button v-for="tag in ['快手', '便当友好', '下饭菜']" :key="tag" class="touch-target rounded-lg px-3 text-sm transition" :class="selectedTags.includes(tag) ? 'bg-[var(--color-text)] text-white' : 'bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]'" @click="toggleTag(tag)">{{ tag }}</button>
+        <button v-if="filtersActive" class="touch-target rounded-lg px-3 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]" @click="clearFilters">清除条件</button>
+      </div>
+      <div v-if="filterExpanded" class="mt-4 border-t border-[var(--color-border)] pt-4">
+        <div class="mb-4 flex flex-wrap gap-2">
+          <button class="touch-target rounded-lg border px-3 text-sm" :class="!activeCategory ? 'border-[var(--color-text)] bg-[var(--color-text)] text-white' : 'border-[var(--color-border)] bg-white text-[var(--color-text-muted)]'" @click="activeCategory = ''">全部分类</button>
+          <button v-for="category in categoryTree" :key="category.key" class="touch-target rounded-lg border px-3 text-sm" :class="activeCategory === category.key ? 'border-[var(--color-text)] bg-[var(--color-text)] text-white' : 'border-[var(--color-border)] bg-white text-[var(--color-text-muted)]'" @click="activeCategory = activeCategory === category.key ? '' : category.key">{{ category.label }} · {{ category.count }}</button>
+        </div>
+        <TagFilter :tags="tagsByDimension" :selected="selectedTags" @toggle="toggleTag" @clear="clearFilters" />
+      </div>
+    </section>
+
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm text-[var(--color-text-muted)]"><span class="tabular-nums font-semibold text-[var(--color-text)]">{{ filteredRecipes.length }}</span> 道菜谱<span v-if="filtersActive">符合条件</span></p>
+      <p class="text-xs text-[var(--color-text-faint)]">共 {{ libraryStats.total }} 道 · 做过 {{ libraryStats.cooked }} 次 · 最常做 {{ libraryStats.favorite }}</p>
     </div>
+
+    <AppNotice v-if="kitchenErrors.recipes" class="mb-5" tone="danger" role="alert" title="菜谱没有加载完整" :message="kitchenErrors.recipes"><AppButton class="mt-3" variant="secondary" size="sm" :loading="kitchenRefreshing" @click="retry">重新加载</AppButton></AppNotice>
+    <div v-if="!apiLoaded || kitchenRefreshing && !recipes.length" class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-label="正在加载菜谱" aria-busy="true"><div v-for="n in 8" :key="n" class="aspect-[4/5] animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-surface-muted)]" /></div>
+    <EmptyState v-else-if="!filteredRecipes.length" title="没有找到合适的菜谱" :description="filtersActive ? '换个关键词，或清除一些筛选条件。' : '先收下第一道家里的常做菜吧。'" icon="菜"><AppButton v-if="filtersActive" variant="secondary" @click="clearFilters">清除条件</AppButton><AppButton v-else to="/recipes/new">新建菜谱</AppButton></EmptyState>
+    <div v-else class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-stagger><RecipeCard v-for="recipe in filteredRecipes" :key="recipe.id" :recipe="recipe" /></div>
+
+    <aside v-if="tip" class="mt-8 rounded-[var(--radius-lg)] bg-[var(--color-warning-soft)] p-4 text-sm leading-6 text-[var(--color-text-muted)]"><span class="font-semibold text-[var(--color-warning)]">厨房小记：</span>{{ tip.content }}</aside>
   </div>
 </template>

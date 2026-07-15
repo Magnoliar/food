@@ -17,8 +17,5 @@ export default defineNuxtRouteMiddleware(async (to) => {
     })
   }
 
-  // 管理页面仅限 admin
-  if (to.path.startsWith('/admin') && user.value.role !== 'admin') {
-    return navigateTo('/')
-  }
+  // 管理页本身会显示明确的无权限状态；敏感 API 仍由服务端强制校验管理员角色。
 })

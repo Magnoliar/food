@@ -1,115 +1,118 @@
 <script setup lang="ts">
+import type { FridgeItem, Ingredient } from '~/types'
 import { colorClasses } from '~/constants/recipe'
 
+type StorageZone = 'frozen' | 'refrigerated' | 'room_temp'
+
 const props = defineProps<{
-  ingredient: {
-    id: string
-    name: string
-    category: string | null
-    family: string | null
-    lineArtUrl: string | null
-    crayonColor: string | null
-    recipeCount: number
-    tags: string[]
-  }
+  ingredient: Ingredient
   inStorage?: boolean
-  storageZone?: string
-  storageItem?: {
-    amount?: string | null
-    addedDate?: string | Date | null
-  }
+  storageZone?: StorageZone
+  storageItem?: FridgeItem
 }>()
 
 const emit = defineEmits<{
   select: []
-  store: [zone: string]
+  store: [zone: StorageZone]
 }>()
 
-// lineArtUrl may be a single URL string or a JSON array of URLs
+const imageFailed = ref(false)
 const displayImageUrl = computed(() => {
+  if (imageFailed.value) return null
   const raw = props.ingredient.lineArtUrl
   if (!raw) return null
-  if (Array.isArray(raw)) return raw[0] || null
-  try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed[0] : raw } catch { return raw }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) && typeof parsed[0] === 'string' ? parsed[0] : raw
+  } catch {
+    return raw
+  }
 })
 
-const storageLabel = computed(() => {
-  if (props.storageZone === 'frozen') return '❄️ 冷冻'
-  if (props.storageZone === 'room_temp') return '🌡️ 常温'
-  return '🧊 冷藏'
-})
+watch(() => props.ingredient.lineArtUrl, () => { imageFailed.value = false })
 
-const storageTone = computed(() => {
-  if (props.storageZone === 'frozen') return 'bg-blue-50 text-blue-600 border-blue-100'
-  if (props.storageZone === 'room_temp') return 'bg-amber-50 text-amber-700 border-amber-100'
-  return 'bg-cyan-50 text-cyan-700 border-cyan-100'
-})
+const zoneMeta: Record<StorageZone, { label: string; icon: string; tone: string }> = {
+  refrigerated: { label: '冷藏', icon: '🧊', tone: 'border-cyan-200 bg-cyan-50 text-cyan-800' },
+  frozen: { label: '冷冻', icon: '❄️', tone: 'border-blue-200 bg-blue-50 text-blue-800' },
+  room_temp: { label: '常温', icon: '🌡️', tone: 'border-amber-200 bg-amber-50 text-amber-900' },
+}
 
+const currentZone = computed(() => props.storageZone ? zoneMeta[props.storageZone] : null)
 const addedDateText = computed(() => {
   const value = props.storageItem?.addedDate
   if (!value) return ''
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 })
+
+const openCard = () => emit('select')
 </script>
 
 <template>
-  <div
-    class="group cursor-pointer overflow-hidden rounded-lg border border-gray-200 bg-white transition-all duration-200 hover:border-gray-300 hover:shadow-md"
-    @click="emit('select')"
+  <article
+    class="group overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] transition hover:-translate-y-0.5 hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)] focus-within:border-[var(--color-accent)]"
   >
-    <!-- Image area -->
-    <div class="relative aspect-[4/3] overflow-hidden" :class="colorClasses[ingredient.crayonColor || ''] || 'bg-gray-50'">
-      <img v-if="displayImageUrl" :src="displayImageUrl" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-      <HandDrawnPlaceholder
-        v-else
-        :tags="[ingredient.name]"
-        aspect-ratio="4/3"
-        class="w-full h-full group-hover:scale-105 transition-transform duration-500"
-      />
-      <!-- Storage badge -->
-      <div
-        v-if="inStorage"
-        class="absolute left-2 top-2 rounded-md border px-1.5 py-0.5 text-[10px] font-medium shadow-sm"
-        :class="storageTone">
-        {{ storageLabel }}
+    <div
+      class="cursor-pointer outline-none"
+      role="button"
+      tabindex="0"
+      :aria-label="ingredient.name + '，' + (inStorage ? (currentZone?.label || '已入库') : '家里暂时没有') + '，查看详情'"
+      @click="openCard"
+      @keydown.enter.prevent="openCard"
+      @keydown.space.prevent="openCard"
+    >
+      <div class="relative aspect-[4/3] overflow-hidden" :class="colorClasses[ingredient.crayonColor || ''] || 'bg-[var(--color-bg-soft)]'">
+        <img
+          v-if="displayImageUrl"
+          :src="displayImageUrl"
+          :alt="ingredient.name + '的线稿图'"
+          width="480"
+          height="360"
+          loading="lazy"
+          class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+          @error="imageFailed = true"
+        />
+        <HandDrawnPlaceholder v-else :tags="[ingredient.name]" :alt="`${ingredient.name}的手绘占位图`" aspect-ratio="4/3" class="h-full w-full transition duration-500 group-hover:scale-[1.03]" />
+        <span v-if="inStorage && currentZone" class="absolute left-2 top-2 rounded-full border px-2 py-1 text-xs font-semibold shadow-sm" :class="currentZone.tone">
+          {{ currentZone.icon }} {{ currentZone.label }}
+        </span>
+        <span v-else class="absolute left-2 top-2 rounded-full border border-white/80 bg-white/90 px-2 py-1 text-xs font-semibold text-[var(--color-text-muted)] shadow-sm">家里没有</span>
       </div>
-      <div
-        v-else
-        class="absolute left-2 top-2 rounded-md border border-white/70 bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-[#8B7D6B] shadow-sm"
-      >
-        未入库
+
+      <div class="p-4 pb-2">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h2 class="truncate font-serif text-lg font-semibold text-[var(--color-text)]">{{ ingredient.name }}</h2>
+            <p class="mt-1 text-xs text-[var(--color-text-muted)]">{{ ingredient.category || '其他' }} · 用于 {{ ingredient.recipeCount }} 道菜</p>
+          </div>
+          <span v-if="displayImageUrl" class="rounded-full bg-[var(--color-success-soft)] px-2 py-1 text-[11px] text-[var(--color-success)]">有配图</span>
+        </div>
+        <div v-if="inStorage && currentZone" class="mt-3 rounded-[var(--radius-md)] border px-3 py-2 text-xs" :class="currentZone.tone">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-semibold">家里有</span>
+            <span v-if="storageItem?.amount" class="font-mono tabular-nums">{{ storageItem.amount }}</span>
+          </div>
+          <p v-if="addedDateText" class="mt-1 opacity-75">{{ addedDateText }} 放入</p>
+        </div>
+        <div v-else class="mt-3 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] bg-[var(--color-bg-soft)] px-3 py-2 text-xs text-[var(--color-text-muted)]">还没放进家里</div>
       </div>
     </div>
 
-    <!-- Content -->
-    <div class="p-4">
-      <h3 class="text-base font-bold text-[#1a1714] mb-1 truncate">{{ ingredient.name }}</h3>
-      <div class="flex items-center gap-1.5">
-        <span class="text-xs text-[#A69080] bg-gray-100 px-2 py-0.5 rounded-md">{{ ingredient.category || '其他' }}</span>
-        <span v-if="displayImageUrl" class="text-[10px] text-[#6D8B74]">线稿</span>
-      </div>
-      <div v-if="inStorage" class="mt-3 rounded-md border px-2 py-1.5 text-[11px]"
-        :class="storageTone">
-        <div class="flex items-center justify-between gap-2">
-          <span class="font-medium">{{ storageLabel }}</span>
-          <span v-if="storageItem?.amount" class="font-mono">{{ storageItem.amount }}</span>
-        </div>
-        <p v-if="addedDateText" class="mt-0.5 text-[10px] opacity-80">{{ addedDateText }} 放入</p>
-      </div>
-      <div v-else class="mt-3 rounded-md border border-dashed border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] text-[#8B7D6B]">
-        还没放进家里
-      </div>
-      <div class="pt-3 border-t border-gray-100 mt-3 flex items-center justify-between">
-        <span class="font-mono text-xs text-[#8B7D6B]">用于 {{ ingredient.recipeCount }} 道菜</span>
-        <!-- Quick store buttons -->
-        <div class="flex gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" @click.stop>
-          <button class="w-6 h-6 rounded flex items-center justify-center text-[10px] bg-cyan-50 text-cyan-600 hover:bg-cyan-100 transition-colors" title="冷藏" @click="emit('store', 'refrigerated')">🧊</button>
-          <button class="w-6 h-6 rounded flex items-center justify-center text-[10px] bg-blue-50 text-blue-500 hover:bg-blue-100 transition-colors" title="冷冻" @click="emit('store', 'frozen')">❄️</button>
-          <button class="w-6 h-6 rounded flex items-center justify-center text-[10px] bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors" title="常温" @click="emit('store', 'room_temp')">🌡️</button>
-        </div>
+    <div class="flex items-center justify-between gap-2 border-t border-[var(--color-border)] px-3 py-2">
+      <span class="pl-1 text-xs text-[var(--color-text-faint)]">快速调整库存</span>
+      <div class="flex gap-1">
+        <button
+          v-for="(meta, zone) in zoneMeta"
+          :key="zone"
+          class="touch-target flex items-center justify-center rounded-[var(--radius-md)] border text-base transition"
+          :class="storageZone === zone ? meta.tone : 'border-transparent text-[var(--color-text-muted)] hover:bg-[var(--color-bg-soft)]'"
+          :aria-label="storageZone === zone ? ingredient.name + '已在' + meta.label + '，点击移出库存' : '将' + ingredient.name + '放入' + meta.label"
+          :aria-pressed="storageZone === zone"
+          @click="emit('store', zone)"
+        >
+          {{ meta.icon }}
+        </button>
       </div>
     </div>
-  </div>
+  </article>
 </template>

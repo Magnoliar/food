@@ -1,29 +1,11 @@
 <script setup lang="ts">
-import * as d3 from 'd3'
+import type { Ingredient, Recipe } from '~/types'
+import type { Selection, ZoomBehavior } from 'd3'
 
 const router = useRouter()
-
-interface Ingredient {
-  id: string
-  name: string
-  family: string | null
-  category: string
-  recipeCount: number
-  crayonColor: string
-  usedIn: string[]
-}
-
-interface Recipe {
-  id: string
-  name: string
-  tags: string[]
-  coverColor: string
-}
-
-interface Link {
-  source: string
-  target: string
-}
+const toast = useToast()
+let d3Module: typeof import('d3') | null = null
+type GraphLink = { source: string; target: string }
 
 const props = defineProps<{
   ingredients: Ingredient[]
@@ -35,8 +17,11 @@ const containerRef = ref<HTMLElement | null>(null)
 const searchQuery = ref('')
 const tooltipData = ref<{ x: number; y: number; name: string; detail: string } | null>(null)
 const isFullscreen = ref(false)
-let currentZoom: d3.ZoomBehavior<Element, unknown> | null = null
-let currentSvg: d3.Selection<SVGSVGElement, unknown, null, undefined> | null = null
+const graphLoading = ref(true)
+const graphError = ref('')
+const hasGraphData = computed(() => props.ingredients.length > 0 && props.recipes.length > 0)
+let currentZoom: ZoomBehavior<Element, unknown> | null = null
+let currentSvg: Selection<SVGSVGElement, unknown, null, undefined> | null = null
 
 // Category filter
 const excludeCategories = ref<Set<string>>(new Set())
@@ -80,7 +65,8 @@ const zoomOut = () => {
 
 const zoomReset = () => {
   if (currentSvg && currentZoom) {
-    ;(currentSvg.transition().duration(500) as any).call(currentZoom.transform, d3.zoomIdentity)
+    if (!d3Module) return
+    ;(currentSvg.transition().duration(500) as any).call(currentZoom.transform, d3Module.zoomIdentity)
   }
 }
 
@@ -94,8 +80,8 @@ const toggleFullscreen = async () => {
       await document.exitFullscreen()
       isFullscreen.value = false
     }
-  } catch (e) {
-    console.warn('Fullscreen toggle failed:', e)
+  } catch (error: unknown) {
+    toast.error(getApiErrorMessage(error, '无法切换全屏，请检查浏览器权限。'))
   }
 }
 
@@ -114,10 +100,24 @@ const handleFullscreenChange = () => {
   }
 }
 
-onMounted(() => {
-  buildGraph()
+const retryGraph = async () => {
+  graphLoading.value = true
+  graphError.value = ''
+  try {
+    d3Module ||= await import('d3')
+    await nextTick()
+    if (hasGraphData.value) buildGraph()
+  } catch (error: unknown) {
+    graphError.value = getApiErrorMessage(error, '图谱模块没有加载成功。')
+  } finally {
+    graphLoading.value = false
+  }
+}
+
+onMounted(async () => {
   window.addEventListener('resize', debouncedResize)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+  await retryGraph()
 })
 
 onUnmounted(() => {
@@ -127,7 +127,8 @@ onUnmounted(() => {
 })
 
 const buildGraph = () => {
-  if (!svgRef.value) return
+  const d3 = d3Module
+  if (!svgRef.value || !d3 || !hasGraphData.value) return
 
   const container = svgRef.value
   const W = 4000, H = 3000
@@ -224,7 +225,7 @@ const buildGraph = () => {
   })
 
   // Links
-  const links: Link[] = []
+  const links: GraphLink[] = []
   const linkSet = new Set<string>()
   for (const [recipeId, ings] of recipeIngredientMap) {
     for (const ingName of ings) {
@@ -404,7 +405,8 @@ const buildGraph = () => {
 }
 
 const applySearchHighlight = () => {
-  if (!svgRef.value) return
+  const d3 = d3Module
+  if (!svgRef.value || !d3) return
   const svg = d3.select(svgRef.value).select('svg')
   const q = searchQuery.value
 
@@ -423,112 +425,40 @@ const applySearchHighlight = () => {
 }
 
 watch(searchQuery, () => applySearchHighlight())
+watch(() => [props.ingredients.length, props.recipes.length], async () => {
+  if (!d3Module || !hasGraphData.value) return
+  await nextTick()
+  buildGraph()
+})
 </script>
 
 <template>
-  <div ref="containerRef" class="relative" :class="isFullscreen ? 'bg-[#F5F0E8]' : ''">
-    <!-- Top controls -->
-    <div class="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-start gap-2">
-      <div class="relative max-w-xs flex-1">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-[#A69080] absolute left-3 top-1/2 -translate-y-1/2">
-          <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-        </svg>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="搜索食材..."
-          class="w-full pl-9 pr-4 py-2 bg-white/85 backdrop-blur-md border border-[#C4B5A5]/40 rounded-xl font-serif text-base text-[#1a1714] placeholder:text-[#A69080]/50 focus:outline-none focus:ring-2 focus:ring-[#A69080]/20"
-        />
-      </div>
-
-      <!-- Category filters -->
-      <div class="glass-card px-3 py-2 flex flex-wrap items-center gap-1.5">
-        <span class="font-hand text-sm text-[#6B5D4D] mr-1">显示:</span>
-        <button
-          v-for="cat in allCategories"
-          :key="cat"
-          class="px-2.5 py-1 rounded-full font-hand text-xs transition-all border"
-          :class="excludeCategories.has(cat)
-            ? 'bg-white/40 text-[#A69080]/40 border-transparent line-through'
-            : 'bg-[#8B7D6B]/10 text-[#5A4D3E] border-[#C4B5A5]/30 hover:bg-[#8B7D6B]/20'"
-          @click="toggleCategory(cat)"
-        >
-          {{ cat }}
-        </button>
-      </div>
+  <div ref="containerRef" class="relative overflow-hidden rounded-[var(--radius-lg)] bg-[var(--color-bg-soft)]" :class="isFullscreen ? 'h-screen bg-[var(--color-bg)]' : 'min-h-[36rem]'">
+    <div v-if="graphLoading" class="flex min-h-[36rem] items-center justify-center" role="status">
+      <div class="text-center"><span class="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-strong)] border-t-[var(--color-accent)]"></span><p class="mt-3 text-sm text-[var(--color-text-muted)]">正在加载图谱引擎…</p></div>
     </div>
-
-    <!-- Zoom & fullscreen controls -->
-    <div class="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
-      <button
-        class="w-8 h-8 glass-card flex items-center justify-center text-[#8B7D6B] hover:text-[#1a1714] transition-colors"
-        title="放大"
-        @click="zoomIn"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
-          <path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" />
-        </svg>
-      </button>
-      <button
-        class="w-8 h-8 glass-card flex items-center justify-center text-[#8B7D6B] hover:text-[#1a1714] transition-colors"
-        title="缩小"
-        @click="zoomOut"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
-          <path d="M19.5 12h-15" stroke-linecap="round" />
-        </svg>
-      </button>
-      <button
-        class="w-8 h-8 glass-card flex items-center justify-center text-[#8B7D6B] hover:text-[#1a1714] transition-colors"
-        title="重置视图"
-        @click="zoomReset"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-          <path d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
-      <div class="w-8 h-px bg-[#C4B5A5]/30"></div>
-      <button
-        class="w-8 h-8 glass-card flex items-center justify-center text-[#8B7D6B] hover:text-[#1a1714] transition-colors"
-        :title="isFullscreen ? '退出全屏' : '全屏'"
-        @click="toggleFullscreen"
-      >
-        <svg v-if="!isFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-          <path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-          <path d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
-    </div>
-
-    <!-- Legend -->
-    <div class="absolute bottom-3 left-3 z-10 glass-card px-3 py-2">
-      <div class="flex items-center gap-4 text-xs">
-        <div class="flex items-center gap-1.5">
-          <div class="w-3 h-3 rounded-full bg-crayon-coral/70"></div>
-          <span class="font-hand text-[#8B7D6B]">食材</span>
+    <div v-else-if="graphError" class="flex min-h-[36rem] items-center justify-center p-6"><AppNotice tone="danger" title="图谱没有加载出来" :message="graphError"><AppButton class="mt-3" variant="secondary" @click="retryGraph">重新加载图谱</AppButton></AppNotice></div>
+    <EmptyState v-else-if="!hasGraphData" class="m-6" title="还没有足够的数据画图谱" description="添加菜谱和食材后，这里会展示它们之间的关联。" />
+    <template v-else>
+      <div class="absolute left-3 right-16 top-3 z-10 space-y-2 sm:right-3">
+        <div class="max-w-sm"><label for="graph-search" class="sr-only">搜索图谱中的食材或菜谱</label><input id="graph-search" v-model="searchQuery" type="search" placeholder="搜索食材或菜谱" class="field-control bg-white/90 shadow-[var(--shadow-sm)] backdrop-blur" /></div>
+        <div class="flex max-w-full gap-2 overflow-x-auto rounded-[var(--radius-md)] bg-white/85 p-2 pr-3 shadow-[var(--shadow-sm)] backdrop-blur sm:w-fit" aria-label="图谱分类筛选">
+          <button v-for="category in allCategories" :key="category" class="min-h-11 shrink-0 rounded-full border px-4 text-xs font-semibold transition" :class="excludeCategories.has(category) ? 'border-transparent bg-[var(--color-bg-soft)] text-[var(--color-text-faint)] line-through' : 'border-[var(--color-border)] bg-white text-[var(--color-text-muted)] hover:border-[var(--color-accent)]'" :aria-pressed="!excludeCategories.has(category)" @click="toggleCategory(category)">{{ category }}</button>
         </div>
-        <div class="flex items-center gap-1.5">
-          <div class="w-3 h-3 rounded-full bg-[#C4B5A5]"></div>
-          <span class="font-hand text-[#8B7D6B]">菜谱</span>
-        </div>
-        <span class="text-[#A69080]/50">|</span>
-        <span class="font-hand text-[#A69080]">滚轮缩放 · 拖拽节点</span>
       </div>
-    </div>
 
-    <!-- Graph -->
-    <div ref="svgRef" class="w-full rounded-xl overflow-hidden" :class="isFullscreen ? 'h-full' : 'h-[600px]'" />
+      <div class="absolute right-3 top-3 z-20 flex flex-col gap-2">
+        <button class="touch-target flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white/90 text-xl text-[var(--color-text-muted)] shadow-[var(--shadow-sm)] backdrop-blur" aria-label="放大图谱" @click="zoomIn">+</button>
+        <button class="touch-target flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white/90 text-xl text-[var(--color-text-muted)] shadow-[var(--shadow-sm)] backdrop-blur" aria-label="缩小图谱" @click="zoomOut">−</button>
+        <button class="touch-target flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white/90 text-xs font-semibold text-[var(--color-text-muted)] shadow-[var(--shadow-sm)] backdrop-blur" aria-label="重置图谱视图" @click="zoomReset">1:1</button>
+        <button class="touch-target flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white/90 text-sm text-[var(--color-text-muted)] shadow-[var(--shadow-sm)] backdrop-blur" :aria-label="isFullscreen ? '退出全屏' : '全屏查看图谱'" @click="toggleFullscreen">{{ isFullscreen ? '↙' : '↗' }}</button>
+      </div>
 
-    <!-- Tooltip -->
-    <div
-      v-if="tooltipData"
-      class="absolute pointer-events-none z-20 glass-card px-3 py-2"
-      :style="{ left: tooltipData.x + 'px', top: tooltipData.y + 'px', transform: 'translateX(-50%)' }"
-    >
-      <p class="font-serif text-base font-medium text-[#1a1714]">{{ tooltipData.name }}</p>
-      <p class="font-hand text-base text-[#6B5D4D]">{{ tooltipData.detail }}</p>
-    </div>
+      <div class="absolute bottom-3 left-3 z-10 hidden rounded-full border border-[var(--color-border)] bg-white/90 px-4 py-2 text-xs text-[var(--color-text-muted)] shadow-[var(--shadow-sm)] backdrop-blur sm:flex sm:items-center sm:gap-4"><span><i class="mr-1 inline-block h-3 w-3 rounded-full bg-crayon-coral/70"></i>食材</span><span><i class="mr-1 inline-block h-3 w-3 rounded-full bg-[var(--color-border-strong)]"></i>菜谱</span><span>滚轮缩放 · 拖拽节点 · 点击进入详情</span></div>
+
+      <div ref="svgRef" class="w-full overflow-hidden" :class="isFullscreen ? 'h-full' : 'h-[36rem] sm:h-[42rem]'" aria-label="食材与菜谱关系图谱" />
+
+      <div v-if="tooltipData" class="pointer-events-none absolute z-30 max-w-56 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white/95 px-3 py-2 shadow-[var(--shadow-md)]" :style="{ left: tooltipData.x + 'px', top: tooltipData.y + 'px', transform: 'translateX(-50%)' }"><p class="font-serif font-semibold text-[var(--color-text)]">{{ tooltipData.name }}</p><p class="mt-1 text-xs text-[var(--color-text-muted)]">{{ tooltipData.detail }}</p></div>
+    </template>
   </div>
 </template>

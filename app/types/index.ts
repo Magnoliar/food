@@ -11,7 +11,7 @@ export interface Recipe {
   steps: string[]
   tip?: string
   notes?: string
-  coverColor?: string
+  coverColor: string
   coverPhotoUrl?: string
   ingredients: RecipeIngredient[]
   tags: string[]
@@ -22,16 +22,20 @@ export interface RecipeIngredient {
   amount?: string
   unit?: string
   ingredientId?: string
+  category?: string | null
+  optional?: boolean
+  lineArtUrl?: string | null
 }
 
 export interface Ingredient {
   id: string
   name: string
-  category?: string
-  family?: string
+  category: string
+  family: string | null
   lineArtUrl?: string
-  crayonColor?: string
-  usedIn?: string[]
+  crayonColor: string
+  usedIn: string[]
+  recipeCount: number
   tags?: string[]
 }
 
@@ -63,6 +67,7 @@ export interface CookingTip {
   title: string
   content: string
   category?: string
+  relatedIngredients?: string[]
 }
 
 export interface WeekPlan {
@@ -93,3 +98,117 @@ export interface FridgeItem {
   addedDate: string
   expiryDate?: string | null
 }
+
+
+export interface KitchenMealSlot {
+  id: string
+  recipeId: string | null
+  name: string
+  label: string
+  notes: string | null
+  status: string | null
+  skipReason: string | null
+}
+
+export interface KitchenPlanDay {
+  date: string
+  dayLabel: string
+  meal1: KitchenMealSlot | null
+  meal2: KitchenMealSlot | null
+}
+
+export interface KitchenWeekPlan {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  status: string
+  weekKey: string
+  meals: KitchenPlanDay[]
+  shoppingList: Partial<ShoppingList>
+}
+
+export interface ShoppingItem {
+  id: string
+  shoppingListId?: string
+  name: string
+  amount?: string | null
+  category?: string | null
+  source?: string | null
+  checked: boolean
+  inStock: boolean
+  manual: boolean
+}
+
+export interface ShoppingList {
+  id: string
+  name: string
+  weekPlanId?: string | null
+  startDate?: string | null
+  endDate?: string | null
+  items: ShoppingItem[]
+}
+
+export interface FridgeInventory {
+  frozen: FridgeItem[]
+  refrigerated: FridgeItem[]
+  room_temp: FridgeItem[]
+}
+
+export interface RecipeRecommendation extends Recipe {
+  recommendationScore: number
+  reason: string[]
+}
+
+export interface RecommendationOptions {
+  mealType?: 'dinner' | 'bento' | 'weekend'
+  profile?: 'quick' | 'light' | 'spicy' | 'fridge' | 'balanced'
+  count?: number
+  excludeRecipeIds?: string[]
+  useFridge?: boolean
+  enrichWithAI?: boolean
+}
+
+export interface MediaUploadResult {
+  id: string
+  url: string
+  path?: string
+  mimeType?: string
+  width?: number
+  height?: number
+  size?: number
+}
+
+export interface LineArtJob {
+  id: string
+  status: string
+  imageUrls: string[]
+  selectedUrl: string | null
+  error?: string | null
+  ingredientName?: string
+  ingredientId?: string
+  updatedAt?: string
+}
+
+export interface LineArtSubmitResult {
+  jobId: string | null
+  status: 'submitted' | 'already_exists' | 'already_running' | string
+  imageUrls?: string[]
+  selectedUrl?: string | null
+}
+
+export interface ApiErrorInfo {
+  statusCode?: number
+  message: string
+  data?: unknown
+}
+
+export type RecipeUpdateInput = Partial<Omit<Recipe, 'id' | 'ingredients'>> & {
+  ingredients?: RecipeIngredient[]
+}
+
+export type IngredientUpdateInput = Partial<Omit<Ingredient, 'id'>>
+export type CookLogUpdateInput = Partial<Omit<CookLog, 'id' | 'recipe' | 'user'>>
+export type ShoppingItemUpdateInput = Partial<Pick<ShoppingItem, 'name' | 'amount' | 'category' | 'checked' | 'inStock'>>
+
+export interface PlanMealUpdate { id: string; recipeId: string | null; customName: string | null; status: string | null; skipReason: string | null }

@@ -1,7 +1,6 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { resolve } from 'path'
-
-const SETTINGS_PATH = resolve(process.cwd(), 'server/data/settings.json')
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { getRuntimePaths } from './runtime-paths'
 
 export interface AppSettings {
   ai: {
@@ -35,15 +34,24 @@ const defaults: AppSettings = {
 
 export function loadSettings(): AppSettings {
   try {
-    if (existsSync(SETTINGS_PATH)) {
-      return JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8'))
+    const settingsPath = getRuntimePaths().settingsFile
+    if (existsSync(settingsPath)) {
+      return JSON.parse(readFileSync(settingsPath, 'utf-8'))
     }
   } catch {}
   return JSON.parse(JSON.stringify(defaults))
 }
 
 export function saveSettings(settings: AppSettings) {
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+  const settingsPath = getRuntimePaths().settingsFile
+  const temporaryPath = `${settingsPath}.tmp`
+  mkdirSync(path.dirname(settingsPath), { recursive: true })
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 })
+    renameSync(temporaryPath, settingsPath)
+  } finally {
+    rmSync(temporaryPath, { force: true })
+  }
 }
 
 // Get effective config: file overrides > env defaults

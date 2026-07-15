@@ -8,26 +8,20 @@ const props = defineProps<{
 }>()
 
 const is404 = computed(() => props.error?.statusCode === 404)
-
 const handleError = () => clearError({ redirect: '/' })
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#FAF7F0] flex items-center justify-center px-6">
-    <div class="text-center max-w-md">
-      <p class="text-6xl mb-6">{{ is404 ? '🍳' : '😅' }}</p>
-      <h1 class="text-3xl font-serif font-bold text-[#1a1714] mb-3">
+  <main class="grid min-h-[100dvh] place-items-center bg-[var(--color-bg)] px-6 py-10 text-[var(--color-text)]">
+    <section class="w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-[var(--shadow-md)] sm:p-8" aria-labelledby="error-title">
+      <p class="mb-5 text-6xl" aria-hidden="true">{{ is404 ? '🍳' : '😅' }}</p>
+      <h1 id="error-title" class="heading-serif text-3xl">
         {{ is404 ? '这个页面找不到了' : '出了点小状况' }}
       </h1>
-      <p class="text-[#8B7D6B] mb-8">
-        {{ is404 ? '可能链接不对，或者页面已经搬走了。' : '别担心，刷新一下可能就好了。' }}
+      <p class="mx-auto mt-3 max-w-[34ch] leading-7 text-[var(--color-text-muted)]">
+        {{ is404 ? '可能链接不对，或者页面已经搬走了。' : '别担心，回到首页后可以继续使用厨房本。' }}
       </p>
-      <button
-        class="px-6 py-3 bg-[#C06030] text-white rounded-lg font-medium hover:bg-[#A85028] transition-colors"
-        @click="handleError"
-      >
-        回到首页
-      </button>
-    </div>
-  </div>
+      <AppButton class="mt-7" size="lg" @click="handleError">回到首页</AppButton>
+    </section>
+  </main>
 </template>

@@ -1,136 +1,78 @@
-# 部署与运维
+# 部署与运行
 
-更新时间：2026-06-17
+更新时间：2026-07-15
 
-## 本地开发
+## 1. 部署模型
 
-```bash
-npm install
+当前推荐将应用通过 Docker Compose 部署到 NAS 或 VPS。运行时依赖以下持久化数据：
+
+- SQLite 数据库：`docker-data/data/dev.db`
+- 公开上传图：`docker-data/public/uploads/`
+- 上传原图：`docker-data/uploads_backup/`
+- 运行时线稿：`docker-data/public/line-arts/`
+- 管理设置与线稿历史：`docker-data/server/data/`
+
+公开上传图由 `/uploads/**` 服务端路由读取，运行时线稿由 `/line-arts/**` 路由优先读取持久化目录并回退到镜像内置素材。因此容器更新后不会因为 Nitro 的构建期静态目录而丢失新上传内容。
+
+## 2. 本地开发
+
+```powershell
+npm.cmd install
 npm.cmd exec prisma generate
 npm.cmd exec prisma migrate deploy
-npm run dev
+npm.cmd exec prisma db seed
+npm.cmd run dev
 ```
 
-开发地址：http://localhost:3000
+开发地址：`http://localhost:4789`。生产容器默认对外端口为 `41832`。
 
-## 环境变量
+## 3. 生产环境配置
 
-| 变量 | 说明 |
-|---|---|
-| `DATABASE_URL` | SQLite 地址。本地可用 `file:./dev.db`，Docker 默认 `file:/app/data/dev.db` |
-| `PUID` / `PGID` | Docker bind mount 写入用户，默认 `1001/1001`；Linux 目标机可改成持有 `docker-data` 的用户 |
-| `AUTH_SECRET` | 登录 cookie 签名密钥，生产环境至少 32 位 |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | 猪猪账号登录名和密码 |
-| `PARTNER_USER` / `PARTNER_PASSWORD` | 猪宝账号登录名和密码 |
-| `AI_BASE_URL_1` / `AI_API_KEY_1` | OpenAI 兼容主端点 |
-| `AI_MODEL_1` / `AI_MODEL_LIGHT_1` | 标准模型和轻量模型 |
-| `XYQ_ACCESS_KEY` / `XYQ_BASE_URL` | 小云雀图片生成配置 |
+复制示例文件：
 
-运行在家用服务器上时会校验 `AUTH_SECRET` 和弱密码。账号、密码、密钥这些内容只写在运维文档里，不放到用户页面。
-
-## 数据库迁移
-
-开发和生产统一使用已提交迁移：
-
-```bash
-npm.cmd exec prisma generate
-npm.cmd exec prisma migrate deploy
+```powershell
+Copy-Item .env.example .env
 ```
 
-不要在生产环境使用 `prisma migrate dev`。
+至少填写：
 
-## SQLite 与 NAS 性能
+- `AUTH_SECRET`：不少于 32 个字符的随机值。
+- `ADMIN_USER` / `ADMIN_PASSWORD`：管理员账号。
+- `PARTNER_USER` / `PARTNER_PASSWORD`：普通成员账号。
+- AI 与线稿服务密钥：可选；未配置时不影响手动计划、菜谱、购物和记录主流程。
 
-当前部署继续使用 SQLite，适合家庭菜谱、周计划、上传图片元数据这类低并发场景。应用启动时会为 SQLite 连接启用：
+禁止使用 `momo`、`partner`、`zhuzhu`、`zhubao` 作为生产密码。容器入口会在迁移数据库前校验这些配置并快速失败。
 
-- `journal_mode=WAL`：读写并发更稳，读请求不容易被写入阻塞。
-- `synchronous=NORMAL`：在 WAL 模式下减少同步写盘开销。
-- `busy_timeout=10000`：遇到短暂写锁时等待最多 10 秒，而不是立刻报 `database is locked`。
-- `foreign_keys=ON`：确保级联删除和外键约束按预期生效。
+Docker 常用环境变量：
 
-已提交的 `20260707090000_sqlite_runtime_indexes` 迁移会为菜谱排序、做饭日志、周计划定位、购物清单、标签和上传媒体等常用路径创建索引。生产环境更新代码后执行 `prisma migrate deploy`，Docker 容器启动脚本也会自动执行迁移。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `APP_PORT` | `41832` | 宿主机公开端口 |
+| `TZ` | `Asia/Shanghai` | “今天”、周计划和上传日期使用的时区 |
+| `PUID` / `PGID` | `1001` | 容器进程访问 bind mount 时使用的用户与组 |
+| `DATABASE_URL` | `file:/app/data/dev.db` | Compose 固定的容器内数据库地址 |
+| `APP_UPLOADS_PATH` | `/app/public/uploads` | 公开上传图目录 |
+| `APP_UPLOADS_BACKUP_PATH` | `/app/uploads_backup` | 原图目录，不对外公开 |
+| `APP_LINE_ARTS_PATH` | `/app/runtime-line-arts` | 运行时线稿目录 |
+| `APP_SETTINGS_PATH` | `/app/server/data/settings.json` | 管理设置文件 |
+| `APP_LINE_ART_HISTORY_PATH` | `/app/server/data/line-art-history.json` | 线稿历史文件 |
 
-WAL 模式下可能出现 `dev.db-wal` / `dev.db-shm` 辅助文件，这是正常现象。备份、迁移和导出仍然使用：
+Compose 已设置所有 `APP_*` 路径，通常无需在 `.env` 重复配置。请保留正确时区，否则跨午夜时首页和计划页可能出现日期偏差。
 
-```bash
-npm.cmd run backup
-npm.cmd run export:docker-data
-```
+## 4. 从现有本地数据迁移
 
-这两个脚本通过 SQLite backup API 生成一致的数据库快照，不要在服务运行中只手动复制单个 `dev.db` 文件。
+在源机器执行：
 
-## Docker Compose 部署
-
-1. 准备 `.env`：
-
-```env
-AUTH_SECRET=replace-with-a-long-random-secret
-ADMIN_USER=zhuzhu
-ADMIN_PASSWORD=replace-with-strong-password
-PARTNER_USER=zhubao
-PARTNER_PASSWORD=replace-with-strong-password
-```
-
-`docker-compose.yml` 会在容器内固定使用 `DATABASE_URL=file:/app/data/dev.db`。即使本地 `.env` 里仍保留 `file:./dev.db` 供开发使用，容器也会读取挂载的 `./docker-data/data/dev.db`。
-
-2. 准备持久化目录。
-
-已有本机数据时优先运行导出脚本：
-
-```bash
-npm.cmd run export:docker-data
-```
-
-全新空库部署时也需要先创建目录：
-
-```bash
-mkdir docker-data
-mkdir docker-data\data
-mkdir docker-data\public
-mkdir docker-data\public\uploads
-mkdir docker-data\uploads_backup
-mkdir docker-data\server
-mkdir docker-data\server\data
-```
-
-3. 启动：
-
-```bash
-docker compose up -d --build
-```
-
-容器启动时会先执行 `prisma migrate deploy`，再启动 Nuxt/Nitro。默认访问地址为 `http://localhost:41832`。
-
-## 迁移当前数据到 Docker
-
-在当前本机项目目录先做备份和恢复演练：
-
-```bash
+```powershell
 npm.cmd run backup
 npm.cmd run verify:backup
-npm.cmd run restore:drill
-```
-
-导出 Docker 挂载目录结构：
-
-```bash
 npm.cmd run export:docker-data
+npm.cmd run docker:smoke
 ```
 
-脚本会生成：
+导出脚本会使用 SQLite 在线备份 API 创建一致性数据库副本，复制上传图、原图、线稿和 `server/data`，并生成 `docker-data/manifest.json`。脚本会核对所有业务表行数与媒体引用；存在缺失文件时导出失败。
 
-```text
-docker-data/
-  data/dev.db
-  public/uploads/
-  uploads_backup/
-  server/data/
-  manifest.json
-```
-
-`manifest.json` 会记录导出时间、数据库来源、所有业务表行数、目录文件数和媒体引用数量。导出脚本会同时校验菜谱封面、CookLog 照片、MediaAsset 压缩图和原图备份是否都已进入 `docker-data`；若有引用文件缺失，导出会失败。
-
-把整个 `docker-data/` 目录复制到目标机器项目根目录，不要拆到旧的 `data/`、`public/uploads/`、`uploads_backup/` 目录：
+完整目录结构：
 
 ```text
 项目根目录/
@@ -139,77 +81,108 @@ docker-data/
   docker-data/
     data/dev.db
     public/uploads/
+    public/line-arts/
     uploads_backup/
     server/data/
     manifest.json
 ```
 
-然后在目标机器运行：
+迁移时复制整个 `docker-data/`，不要只复制数据库。
+
+## 5. 首次启动
 
 ```bash
-npm.cmd run docker:smoke
-docker compose up -d --build
-docker compose logs -f app
+docker compose config --quiet
+docker compose build --pull app
+docker compose up -d app
+docker compose ps
+docker compose logs --tail=200 app
 ```
 
-`npm.cmd run docker:smoke` 会先校验 `docker-data` 里的 SQLite、uploads、原图备份和 server data：所有业务表行数必须与 manifest 一致，所有图片引用必须能在迁移目录中找到。若目标机器已安装 Docker CLI，它会使用 `docker-compose.smoke.yml` 直接挂载 `docker-data` 临时启动容器，等待 `http://127.0.0.1:41833/api/health` 正常，再自动清理临时容器。
+访问健康接口：
 
-Linux 目标机如果保存、上传失败，通常是 bind mount 权限不匹配。处理方式：
+```bash
+curl -fsS http://127.0.0.1:41832/api/health
+```
+
+健康响应只有在下列检查全部正常时才返回 HTTP 200：生产认证配置、数据库查询、上传目录、原图目录、线稿目录和设置目录。任一项失败会返回 HTTP 503，响应只公开检查名称，不泄漏绝对路径或密钥。
+
+## 6. Docker smoke
+
+`npm run docker:smoke` 首先校验导出清单和 Compose 安全/持久化契约。本机有 Docker 时，还会：
+
+1. 将 `docker-data` 复制到 `test-results` 临时目录。
+2. 使用固定且独立的 smoke 账号、密钥和空 AI 配置启动 Compose。
+3. 验证完整健康检查和管理员登录。
+4. 上传 PNG，确认转换后的 JPEG 能从 `/uploads/**` 访问且已写入宿主目录。
+5. 写入管理设置，重启容器，确认图片和设置仍存在。
+6. 删除测试媒体并清理临时容器与临时数据。
+
+`docker-compose.smoke.yml` 不读取本地 `.env`，也不挂载真实 `docker-data`，因此不会污染家庭账号、AI 密钥或生产数据。本机没有 Docker CLI 时会明确跳过容器阶段；CI 会执行完整运行时 smoke。
+
+## 7. Linux / NAS 权限
+
+先查询数据目录所有者应使用的 UID/GID：
 
 ```bash
 id -u
 id -g
 ```
 
-把结果写入 `.env` 的 `PUID` 和 `PGID`，并确保 `docker-data` 属于该用户：
+将结果写入 `.env` 的 `PUID` 和 `PGID`，并修正目录所有权：
 
 ```bash
 chown -R "$PUID:$PGID" docker-data
 ```
 
-验收：
+入口脚本会逐个检查数据库、上传、原图、线稿和设置目录是否可写。若失败，日志会提示检查 bind mount 与 `PUID/PGID`。Windows Docker Desktop 一般可保留 `1001:1001`。
 
-- `/api/health` 返回正常。
-- 登录后能看到首页。
-- 菜谱、周计划、购物清单、做饭记录存在。
-- 菜谱封面和 CookLog 照片能打开。
-- 购物清单勾选后刷新不丢。
-- `docker-data/manifest.json` 中所有业务表行数和目标库一致。
-- `docker-data/manifest.json` 的媒体缺失项为空数组。
+## 8. 更新与回滚
 
-## 备份与恢复
-
-创建备份：
+更新时先构建，再替换运行容器，避免构建失败时提前停止旧服务：
 
 ```bash
+set -eu
+git pull --ff-only
+docker compose config --quiet
+docker compose build --pull app
+docker compose up -d --no-deps --remove-orphans app
+docker compose ps
+```
+
+不要在更新前直接执行 `docker compose down`。GitHub 的手动 `Deploy to VPS` workflow 已使用相同顺序，并在替换后循环检查容器健康。
+
+升级前建议创建一致性备份并记录当前提交：
+
+```bash
+git rev-parse HEAD
+npm run backup
+npm run verify:backup
+```
+
+回滚步骤：
+
+1. 保留当前失败容器日志：`docker compose logs --tail=200 app`。
+2. 切回已知正常的 Git 提交或镜像。
+3. 若新版本已执行不兼容的数据写入，停止应用并恢复同一时点的数据库、上传、原图、线稿和 `server/data`。
+4. 执行 `docker compose build app && docker compose up -d app`。
+5. 检查健康接口、登录、菜谱封面、购物勾选、设置和上传。
+
+当前迁移仅使用向前兼容的 Prisma migration，但数据库与文件目录仍应作为同一备份单元恢复。
+
+## 9. 备份与恢复演练
+
+```powershell
 npm.cmd run backup
-```
-
-备份包含 SQLite 数据库、`public/uploads`、`uploads_backup` 和 `server/data`。
-
-验证备份：
-
-```bash
 npm.cmd run verify:backup
-```
-
-恢复演练：
-
-```bash
 npm.cmd run restore:drill
 ```
 
-手动恢复时：
+备份包含 SQLite、公开上传图、原图、运行时线稿和服务端数据。恢复演练会在隔离目录验证数据库完整性、运行 migration，并核对媒体引用，不会覆盖当前数据。
 
-1. 停止服务。
-2. 恢复数据库文件和上传目录。
-3. 运行 `prisma migrate deploy`，Docker 环境重启容器即可自动执行。
-4. 启动服务。
-5. 检查健康接口、登录、菜谱、周计划、购物清单和图片。
+## 10. 发布检查
 
-## 发布检查
-
-```bash
+```powershell
 npm.cmd run check:mojibake
 npm.cmd run lint
 npm.cmd run typecheck
@@ -219,25 +192,10 @@ npm.cmd run build
 npm.cmd run backup
 npm.cmd run verify:backup
 npm.cmd run restore:drill
-```
-
-迁移或换机器前额外运行：
-
-```bash
 npm.cmd run export:docker-data
 npm.cmd run docker:smoke
 ```
 
-当前本机已导出的迁移包位于 `docker-data/`。最近一次导出已包含当前 `dev.db`、`public/uploads`、`uploads_backup`、`server/data`，并通过本地 `docker:smoke` 数据校验；本机未安装 Docker CLI 时，Compose runtime smoke 会在目标 Docker 机器上继续执行。
+## 11. Windows 中文文件
 
-2026-06-17 最新迁移前校验：
-
-- 最新备份：`backups/2026-06-17T02-37-52-699Z`
-- 最新备份验证：已通过
-- Docker 迁移包导出：已通过（含 MealSlot.status/skipReason 新字段迁移）
-- 本次新增：周导航（左右箭头切换上/下周）、不安排日标记（跳过原因）、资源限制（768M 内存 / 2 CPU）、健康检查、日志轮转
-- Compose runtime smoke：需在目标机器执行
-
-## Windows 中文文件注意
-
-本项目中文文档为 UTF-8。Windows 自带 PowerShell 可能把中文显示成乱码；读取中文文件优先使用 PowerShell 7。若输出可疑，用 Node 按 UTF-8 复核，不要直接判断文件损坏。
+项目文本统一使用 UTF-8。Windows 上执行文件操作优先使用 PowerShell，并在读取或写入文本时显式指定 UTF-8；若终端显示异常，应先用 Node 或编辑器确认文件内容，不要直接覆盖源文件。

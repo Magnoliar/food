@@ -33,7 +33,7 @@ GitHub Pages 可以做一个只读演示站或项目介绍页，但不能承载�
 短期：
 
 - 保持 Docker Compose 部署到 NAS。
-- GitHub Actions 的 CI 只做构建和测试。
+- GitHub Actions 的 CI 会执行构建、单元/E2E 测试，以及隔离数据下的完整 Docker Compose 运行时 smoke。
 - VPS/NAS 部署改为手动触发 `Deploy to VPS` workflow，避免未配置 secrets 时每次 push 都失败。
 
 中期：

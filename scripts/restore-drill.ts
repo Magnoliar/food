@@ -56,6 +56,7 @@ const restoredDb = path.join(restoreRoot, 'dev.db')
 try {
   cpSync(sourceDb, restoredDb)
   const restoredUploads = copyOptionalBackupDir(backupDir, 'public_uploads', path.join(restoreRoot, 'public', 'uploads'))
+  const restoredLineArts = copyOptionalBackupDir(backupDir, 'public_line-arts', path.join(restoreRoot, 'public', 'line-arts'))
   const restoredOriginals = copyOptionalBackupDir(backupDir, 'uploads_backup', path.join(restoreRoot, 'uploads_backup'))
   const restoredServerData = copyOptionalBackupDir(backupDir, 'server_data', path.join(restoreRoot, 'server', 'data'))
 
@@ -180,6 +181,7 @@ try {
     restoreRoot,
     restoredDb: true,
     restoredUploads,
+    restoredLineArts,
     restoredOriginals,
     restoredServerData,
     migrationDeploy: 'ok',
@@ -188,6 +190,6 @@ try {
 } finally {
   if (process.env.KEEP_RESTORE_DRILL !== 'true') {
     assertSafeCleanup(restoreRoot)
-    rmSync(restoreRoot, { recursive: true, force: true })
+    rmSync(restoreRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 })
   }
 }

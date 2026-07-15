@@ -1,255 +1,209 @@
 <script setup lang="ts">
-import { colorClasses } from '~/constants/recipe'
+import type { FridgeItem, Ingredient, Recipe } from '~/types'
 
-const { getFridge, addFridgeItem: addFridge, removeFridgeItem: removeFridge, generateAndSaveLineArt, checkLineArtJob, getLineArtJobs, updateIngredient, getRecipes } = useApi()
+type StorageZone = 'frozen' | 'refrigerated' | 'room_temp'
+type ExpiryInfo = { label: string; tone: string; urgent: boolean } | null
 
-const ingredientsList = ref<any[]>([])
-const recipes = ref<any[]>([])
-const fridgeFrozen = ref<any[]>([])
-const fridgeRefrigerated = ref<any[]>([])
-const fridgeRoomTemp = ref<any[]>([])
+const { getFridge, addFridgeItem, removeFridgeItem, generateAndSaveLineArt, checkLineArtJob, getLineArtJobs, updateIngredient, getRecipes } = useApi()
+const toast = useToast()
+
+const ingredientsList = ref<Ingredient[]>([])
+const recipes = ref<Recipe[]>([])
+const fridgeFrozen = ref<FridgeItem[]>([])
+const fridgeRefrigerated = ref<FridgeItem[]>([])
+const fridgeRoomTemp = ref<FridgeItem[]>([])
 const loading = ref(true)
+const loadError = ref('')
+const fridgeError = ref('')
 
-// Filters
 const searchQuery = ref('')
 const activeCategory = ref('')
 const sortBy = ref<'name' | 'count' | 'category'>('count')
 const lineArtFilter = ref<'all' | 'missing' | 'has'>('all')
+const activeMobileStorageZone = ref<StorageZone>('refrigerated')
+const newFridgeItem = ref<{ name: string; amount: string; zone: StorageZone; expiryDate: string }>({ name: '', amount: '', zone: 'refrigerated', expiryDate: '' })
+const addingFridge = ref(false)
+const fridgeFormError = ref('')
+const fridgeBusyNames = ref(new Set<string>())
+const pendingRemoveItem = ref<FridgeItem | null>(null)
+const removingFridge = ref(false)
 
-// Drawer
-const selectedIng = ref<any>(null)
+const selectedIng = ref<Ingredient | null>(null)
 const drawerOpen = ref(false)
 const editForm = ref({ name: '', category: '', family: '' })
 const saving = ref(false)
+const saveError = ref('')
+const drawerImageFailed = ref(false)
+const lineArtImageErrors = ref<Record<string, boolean>>({})
 
-// Line art generation
 const generating = ref<Record<string, string>>({})
 const batchGenerating = ref(false)
 const batchProgress = ref({ current: 0, total: 0 })
+const activeJobs = ref(new Map<string, { ingredientName: string; ingredientId: string }>())
+const lineArtErrors = ref<Record<string, string>>({})
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
-// Fridge form
-const newFridgeItem = ref({ name: '', amount: '', zone: 'refrigerated' as 'frozen' | 'refrigerated' | 'room_temp', expiryDate: '' })
-const activeMobileStorageZone = ref<'refrigerated' | 'frozen' | 'room_temp'>('refrigerated')
+const storageZoneMeta: Record<StorageZone, { label: string; icon: string; tone: string; empty: string }> = {
+  refrigerated: { label: '冷藏', icon: '🧊', tone: 'border-cyan-200 bg-cyan-50 text-cyan-800', empty: '冷藏区空空的，该去采购了' },
+  frozen: { label: '冷冻', icon: '❄️', tone: 'border-blue-200 bg-blue-50 text-blue-800', empty: '冷冻区暂时是空的' },
+  room_temp: { label: '常温', icon: '🌡️', tone: 'border-amber-200 bg-amber-50 text-amber-900', empty: '常温区还没有东西' },
+}
 
-// Storage names map for card badges (name → zone)
-const storageMap = computed(() => {
-  const map = new Map<string, string>()
-  for (const item of [...fridgeFrozen.value, ...fridgeRefrigerated.value, ...fridgeRoomTemp.value]) {
-    map.set(item.name, item.zone)
-  }
-  return map
-})
-
-const storageItemMap = computed(() => {
-  const map = new Map<string, any>()
-  for (const item of [...fridgeFrozen.value, ...fridgeRefrigerated.value, ...fridgeRoomTemp.value]) {
-    if (!map.has(item.name)) map.set(item.name, item)
-  }
-  return map
-})
-
-const storageZoneMeta = {
-  refrigerated: { label: '冷藏', icon: '🧊', tone: 'bg-cyan-50 text-cyan-700 border-cyan-100' },
-  frozen: { label: '冷冻', icon: '❄️', tone: 'bg-blue-50 text-blue-700 border-blue-100' },
-  room_temp: { label: '常温', icon: '🌡️', tone: 'bg-amber-50 text-amber-700 border-amber-100' },
-} as const
-
-const storageGroups = computed(() => ({
-  refrigerated: fridgeRefrigerated.value,
-  frozen: fridgeFrozen.value,
-  room_temp: fridgeRoomTemp.value,
-}))
-
-const activeMobileStorageItems = computed(() => storageGroups.value[activeMobileStorageZone.value] || [])
-
-const storageTotal = computed(() => (
-  fridgeRefrigerated.value.length + fridgeFrozen.value.length + fridgeRoomTemp.value.length
-))
+const zoneList = (zone: StorageZone) => zone === 'frozen' ? fridgeFrozen : zone === 'room_temp' ? fridgeRoomTemp : fridgeRefrigerated
+const storageGroups = computed<Record<StorageZone, FridgeItem[]>>(() => ({ frozen: fridgeFrozen.value, refrigerated: fridgeRefrigerated.value, room_temp: fridgeRoomTemp.value }))
+const storageItems = computed(() => [...fridgeRefrigerated.value, ...fridgeFrozen.value, ...fridgeRoomTemp.value])
+const storageTotal = computed(() => storageItems.value.length)
+const storageMap = computed(() => new Map(storageItems.value.map(item => [item.name, item.zone as StorageZone])))
+const storageItemMap = computed(() => new Map(storageItems.value.map(item => [item.name, item])))
+const activeMobileStorageItems = computed(() => storageGroups.value[activeMobileStorageZone.value])
 
 const formatAddedDate = (value?: string | Date | null) => {
   if (!value) return ''
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
-const expiryStatus = (value?: string | Date | null) => {
+const expiryStatus = (value?: string | Date | null): ExpiryInfo => {
   if (!value) return null
   const expiry = new Date(value)
   if (Number.isNaN(expiry.getTime())) return null
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  const diff = Math.ceil((expiry.getTime() - now.getTime()) / 86400000)
-  if (diff < 0) return { label: '已过期', class: 'bg-red-100 text-red-700' }
-  if (diff <= 3) return { label: `${diff}天后过期`, class: 'bg-orange-100 text-orange-700' }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  expiry.setHours(0, 0, 0, 0)
+  const diff = Math.ceil((expiry.getTime() - today.getTime()) / 86400000)
+  if (diff < 0) return { label: '已过期', tone: 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]', urgent: true }
+  if (diff === 0) return { label: '今天到期', tone: 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]', urgent: true }
+  if (diff <= 3) return { label: diff + ' 天后到期', tone: 'bg-[var(--color-warning-soft)] text-[var(--color-warning)]', urgent: true }
   return null
 }
+const expiringCount = computed(() => storageItems.value.filter(item => expiryStatus(item.expiryDate)?.urgent).length)
 
-watch(activeMobileStorageZone, (zone) => {
-  newFridgeItem.value.zone = zone
-})
-
-onMounted(async () => {
-  const [ingsResult, fridgeResult, recipesResult] = await Promise.allSettled([
-    $fetch<any[]>('/api/ingredients'),
-    getFridge(),
-    getRecipes(),
-  ])
-  if (ingsResult.status === 'fulfilled') ingredientsList.value = ingsResult.value
-  if (recipesResult.status === 'fulfilled') recipes.value = recipesResult.value || []
-  if (fridgeResult.status === 'fulfilled') {
-    fridgeFrozen.value = fridgeResult.value.frozen || []
-    fridgeRefrigerated.value = fridgeResult.value.refrigerated || []
-    fridgeRoomTemp.value = fridgeResult.value.room_temp || []
-  }
-  await restoreLineArtJobs()
-  loading.value = false
-})
-
-// Computed
 const categories = computed(() => {
-  const counts: Record<string, number> = {}
-  for (const ing of ingredientsList.value) {
-    const cat = ing.category || '其他'
-    counts[cat] = (counts[cat] || 0) + 1
+  const counts = new Map<string, number>()
+  for (const ingredient of ingredientsList.value) {
+    const category = ingredient.category || '其他'
+    counts.set(category, (counts.get(category) || 0) + 1)
   }
-  return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }))
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }))
 })
 
 const filteredIngredients = computed(() => {
-  let list = ingredientsList.value
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter(i => i.name.toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q))
-  }
-  if (activeCategory.value) list = list.filter(i => (i.category || '其他') === activeCategory.value)
-  if (lineArtFilter.value === 'missing') list = list.filter(i => !i.lineArtUrl)
-  else if (lineArtFilter.value === 'has') list = list.filter(i => i.lineArtUrl)
-
-  // Sort
-  if (sortBy.value === 'count') list = [...list].sort((a, b) => (b.recipeCount || 0) - (a.recipeCount || 0))
-  else if (sortBy.value === 'category') list = [...list].sort((a, b) => (a.category || '').localeCompare(b.category || ''))
-  else list = [...list].sort((a, b) => a.name.localeCompare(b.name))
-
-  return list
+  const query = searchQuery.value.trim().toLowerCase()
+  return ingredientsList.value
+    .filter(ingredient => !query || ingredient.name.toLowerCase().includes(query) || (ingredient.category || '').toLowerCase().includes(query))
+    .filter(ingredient => !activeCategory.value || (ingredient.category || '其他') === activeCategory.value)
+    .filter(ingredient => lineArtFilter.value === 'all' || (lineArtFilter.value === 'has' ? Boolean(ingredient.lineArtUrl) : !ingredient.lineArtUrl))
+    .slice()
+    .sort((a, b) => sortBy.value === 'count' ? b.recipeCount - a.recipeCount : sortBy.value === 'category' ? (a.category || '').localeCompare(b.category || '', 'zh-CN') : a.name.localeCompare(b.name, 'zh-CN'))
 })
-
-const stats = computed(() => ({
-  total: ingredientsList.value.length,
-  hasArt: ingredientsList.value.filter(i => i.lineArtUrl).length,
-  missing: ingredientsList.value.filter(i => !i.lineArtUrl).length,
-}))
-
-// Related recipes for drawer
+const missingLineArtCount = computed(() => ingredientsList.value.filter(ingredient => !ingredient.lineArtUrl).length)
 const relatedRecipes = computed(() => {
   if (!selectedIng.value) return []
-  const ingName = selectedIng.value.name
-  return recipes.value.filter((r: any) =>
-    r.ingredients?.some((i: any) => i.name === ingName)
-  ).slice(0, 12)
+  return recipes.value.filter(recipe => recipe.ingredients?.some(item => item.name === selectedIng.value?.name)).slice(0, 12)
 })
 
-// Drawer
-const openDrawer = (ing: any) => {
-  selectedIng.value = ing
-  editForm.value = { name: ing.name, category: ing.category || '', family: ing.family || '' }
+const setInventory = (inventory: Awaited<ReturnType<typeof getFridge>>) => {
+  fridgeFrozen.value = inventory.frozen || []
+  fridgeRefrigerated.value = inventory.refrigerated || []
+  fridgeRoomTemp.value = inventory.room_temp || []
+}
+
+const loadPage = async () => {
+  loading.value = true
+  loadError.value = ''
+  fridgeError.value = ''
+  const [ingredientResult, fridgeResult, recipeResult] = await Promise.allSettled([
+    $fetch<Ingredient[]>('/api/ingredients'),
+    getFridge(),
+    getRecipes(),
+  ])
+  if (ingredientResult.status === 'fulfilled') ingredientsList.value = ingredientResult.value
+  else loadError.value = getApiErrorMessage(ingredientResult.reason, '食材库没有加载出来。')
+  if (fridgeResult.status === 'fulfilled') setInventory(fridgeResult.value)
+  else fridgeError.value = getApiErrorMessage(fridgeResult.reason, '家中库存没有加载出来。')
+  if (recipeResult.status === 'fulfilled') recipes.value = recipeResult.value
+  if (ingredientResult.status === 'fulfilled') await restoreLineArtJobs()
+  loading.value = false
+}
+
+watch(activeMobileStorageZone, zone => { newFridgeItem.value.zone = zone })
+
+const clearFilters = () => {
+  searchQuery.value = ''
+  activeCategory.value = ''
+  lineArtFilter.value = 'all'
+  sortBy.value = 'count'
+}
+
+const openDrawer = (ingredient: Ingredient) => {
+  selectedIng.value = ingredient
+  editForm.value = { name: ingredient.name, category: ingredient.category || '', family: ingredient.family || '' }
+  saveError.value = ''
+  drawerImageFailed.value = false
+  lineArtImageErrors.value = {}
   drawerOpen.value = true
 }
-
-const closeDrawer = () => {
-  drawerOpen.value = false
-  selectedIng.value = null
-}
+const closeDrawer = () => { drawerOpen.value = false; selectedIng.value = null; saveError.value = '' }
 
 const saveIngredient = async () => {
-  if (!selectedIng.value) return
+  if (!selectedIng.value || saving.value) return
   saving.value = true
+  saveError.value = ''
   try {
-    await updateIngredient(selectedIng.value.id, editForm.value)
-    // Update local data
-    const idx = ingredientsList.value.findIndex(i => i.id === selectedIng.value.id)
-    if (idx >= 0) {
-      ingredientsList.value[idx] = { ...ingredientsList.value[idx], ...editForm.value }
-    }
-    selectedIng.value = { ...selectedIng.value, ...editForm.value }
-  } catch (e) {
-    console.warn('Save failed:', e)
+    const updated = await updateIngredient(selectedIng.value.id, editForm.value)
+    const index = ingredientsList.value.findIndex(item => item.id === updated.id)
+    if (index >= 0) ingredientsList.value[index] = { ...ingredientsList.value[index], ...updated }
+    selectedIng.value = { ...selectedIng.value, ...updated }
+    toast.success('食材信息已保存。')
+  } catch (error: unknown) {
+    saveError.value = getApiErrorMessage(error, '食材信息没有保存成功。')
   } finally {
     saving.value = false
   }
 }
 
-// Line art URL parsing (may be single URL string or JSON array)
-const getLineArtUrls = (ing: any): string[] => {
-  if (!ing?.lineArtUrl) return []
-  if (Array.isArray(ing.lineArtUrl)) return ing.lineArtUrl
-  try { const parsed = JSON.parse(ing.lineArtUrl); return Array.isArray(parsed) ? parsed : [ing.lineArtUrl] } catch { return [ing.lineArtUrl] }
-}
-
-const selectedArtIndex = ref(0)
-
-const selectLineArt = async (ing: any, url: string, idx: number) => {
-  selectedArtIndex.value = idx
-  // Keep all URLs but save the selected one as the primary
-  const allUrls = getLineArtUrls(ing)
-  // Reorder: selected URL first, then the rest
-  const reordered = [url, ...allUrls.filter(u => u !== url)]
-  const newLineArtUrl = reordered.length > 1 ? JSON.stringify(reordered) : url
+const getLineArtUrls = (ingredient?: Ingredient | null): string[] => {
+  const raw = ingredient?.lineArtUrl
+  if (!raw) return []
   try {
-    await updateIngredient(ing.id, { lineArtUrl: newLineArtUrl })
-    ing.lineArtUrl = newLineArtUrl
-    const listIdx = ingredientsList.value.findIndex(i => i.id === ing.id)
-    if (listIdx >= 0) ingredientsList.value[listIdx].lineArtUrl = newLineArtUrl
-    if (selectedIng.value?.id === ing.id) selectedIng.value.lineArtUrl = newLineArtUrl
-  } catch (e) { console.warn('Select line art failed:', e) }
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [raw]
+  } catch {
+    return [raw]
+  }
 }
+const primaryLineArt = computed(() => drawerImageFailed.value ? '' : (getLineArtUrls(selectedIng.value)[0] || ''))
 
-// Line art - async parallel generation with polling
-const activeJobs = ref<Map<string, { ingredientName: string; ingredientId: string }>>(new Map())
-const lineArtErrors = ref<Record<string, string>>({})
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-const updateIngredientLineArt = (ingredientId: string, imageUrls: string[]) => {
-  const lineArtUrl = JSON.stringify(imageUrls)
-  const idx = ingredientsList.value.findIndex(i => i.id === ingredientId)
-  if (idx >= 0) ingredientsList.value[idx].lineArtUrl = lineArtUrl
-  if (selectedIng.value?.id === ingredientId) selectedIng.value.lineArtUrl = lineArtUrl
-}
-
-const restoreLineArtJobs = async () => {
-  const ids = ingredientsList.value.map(i => i.id)
-  if (!ids.length) return
+const selectLineArt = async (ingredient: Ingredient, url: string) => {
+  const allUrls = getLineArtUrls(ingredient)
+  const reordered = [url, ...allUrls.filter(item => item !== url)]
+  const lineArtUrl = reordered.length > 1 ? JSON.stringify(reordered) : url
   try {
-    const jobs = await getLineArtJobs(ids)
-    for (const job of jobs) {
-      if (!job.ingredientId) continue
-      const ing = ingredientsList.value.find(i => i.id === job.ingredientId)
-      if (!ing) continue
-      if ((job.status === 'pending' || job.status === 'polling') && !ing.lineArtUrl) {
-        activeJobs.value.set(job.id, { ingredientName: ing.name, ingredientId: ing.id })
-        generating.value[ing.name] = 'polling'
-      } else if (job.status === 'done' && job.imageUrls?.length && !ing.lineArtUrl) {
-        generating.value[ing.name] = 'done'
-        updateIngredientLineArt(ing.id, job.imageUrls)
-      } else if (job.status === 'failed' && !ing.lineArtUrl) {
-        generating.value[ing.name] = 'failed'
-        lineArtErrors.value[ing.name] = job.error || '线稿生成失败，可以重试'
-      }
-    }
-    if (activeJobs.value.size) startPolling()
-  } catch (e) {
-    console.warn('Restore line art jobs failed:', e)
+    const updated = await updateIngredient(ingredient.id, { lineArtUrl })
+    const index = ingredientsList.value.findIndex(item => item.id === ingredient.id)
+    if (index >= 0) ingredientsList.value[index] = { ...ingredientsList.value[index], ...updated, lineArtUrl }
+    if (selectedIng.value?.id === ingredient.id) selectedIng.value = { ...selectedIng.value, ...updated, lineArtUrl }
+    drawerImageFailed.value = false
+    toast.success('主配图已更新。')
+  } catch (error: unknown) {
+    toast.error(getApiErrorMessage(error, '主配图没有保存成功。'))
   }
 }
 
+const updateIngredientLineArt = (ingredientId: string, imageUrls: string[]) => {
+  const lineArtUrl = JSON.stringify(imageUrls)
+  const index = ingredientsList.value.findIndex(item => item.id === ingredientId)
+  const current = ingredientsList.value[index]
+  if (current) ingredientsList.value[index] = { ...current, lineArtUrl }
+  if (selectedIng.value?.id === ingredientId) selectedIng.value = { ...selectedIng.value, lineArtUrl }
+}
+
+const stopPolling = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } }
 const startPolling = () => {
-  if (pollTimer) return
+  if (pollTimer || !activeJobs.value.size) return
   pollTimer = setInterval(async () => {
-    if (activeJobs.value.size === 0) {
-      stopPolling()
-      return
-    }
-    for (const [jobId, info] of activeJobs.value) {
+    if (!activeJobs.value.size) { stopPolling(); return }
+    for (const [jobId, info] of [...activeJobs.value.entries()]) {
       try {
         const result = await checkLineArtJob(jobId)
         if (result.status === 'done' && result.imageUrls?.length) {
@@ -257,539 +211,311 @@ const startPolling = () => {
           updateIngredientLineArt(info.ingredientId, result.imageUrls)
           delete lineArtErrors.value[info.ingredientName]
           activeJobs.value.delete(jobId)
+          toast.success(info.ingredientName + '的配图生成完成。')
         } else if (result.status === 'failed') {
           generating.value[info.ingredientName] = 'failed'
-          lineArtErrors.value[info.ingredientName] = result.error || '线稿生成失败，可以重试'
+          lineArtErrors.value[info.ingredientName] = result.error || '线稿生成失败，可以重试。'
           activeJobs.value.delete(jobId)
         }
-        // 'polling' → keep waiting
-      } catch {
-        // Job expired or error
+      } catch (error: unknown) {
         generating.value[info.ingredientName] = 'failed'
-        lineArtErrors.value[info.ingredientName] = '线稿任务状态获取失败，可以重试'
+        lineArtErrors.value[info.ingredientName] = getApiErrorMessage(error, '线稿任务状态获取失败，可以重试。')
         activeJobs.value.delete(jobId)
       }
     }
   }, 3000)
 }
 
-const stopPolling = () => {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+const restoreLineArtJobs = async () => {
+  const ids = ingredientsList.value.map(item => item.id)
+  if (!ids.length) return
+  try {
+    const jobs = await getLineArtJobs(ids)
+    for (const job of jobs) {
+      if (!job.ingredientId) continue
+      const ingredient = ingredientsList.value.find(item => item.id === job.ingredientId)
+      if (!ingredient) continue
+      if ((job.status === 'pending' || job.status === 'polling') && !ingredient.lineArtUrl) {
+        activeJobs.value.set(job.id, { ingredientName: ingredient.name, ingredientId: ingredient.id })
+        generating.value[ingredient.name] = 'polling'
+      } else if (job.status === 'done' && job.imageUrls?.length && !ingredient.lineArtUrl) {
+        generating.value[ingredient.name] = 'done'
+        updateIngredientLineArt(ingredient.id, job.imageUrls)
+      } else if (job.status === 'failed' && !ingredient.lineArtUrl) {
+        generating.value[ingredient.name] = 'failed'
+        lineArtErrors.value[ingredient.name] = job.error || '线稿生成失败，可以重试。'
+      }
+    }
+    startPolling()
+  } catch {
+    // 线稿任务恢复是可降级能力，不影响库存与食材浏览。
+  }
 }
 
-const generateSingle = async (ing: any) => {
-  generating.value[ing.name] = 'submitting'
-  delete lineArtErrors.value[ing.name]
+const generateSingle = async (ingredient: Ingredient) => {
+  if (['submitting', 'polling'].includes(generating.value[ingredient.name] || '')) return
+  generating.value[ingredient.name] = 'submitting'
+  delete lineArtErrors.value[ingredient.name]
   try {
-    const result = await generateAndSaveLineArt(ing.name, ing.id)
-    if (result?.status === 'already_exists' && result?.imageUrls) {
-      // Already has line art - update local data
-      generating.value[ing.name] = 'done'
-      updateIngredientLineArt(ing.id, result.imageUrls)
-    } else if (result?.jobId) {
-      activeJobs.value.set(result.jobId, { ingredientName: ing.name, ingredientId: ing.id })
-      generating.value[ing.name] = 'polling'
+    const result = await generateAndSaveLineArt(ingredient.name, ingredient.id)
+    if (result.status === 'already_exists' && result.imageUrls?.length) {
+      generating.value[ingredient.name] = 'done'
+      updateIngredientLineArt(ingredient.id, result.imageUrls)
+      toast.success('已有配图已恢复。')
+    } else if (result.jobId) {
+      activeJobs.value.set(result.jobId, { ingredientName: ingredient.name, ingredientId: ingredient.id })
+      generating.value[ingredient.name] = 'polling'
       startPolling()
-    } else if (result?.status === 'already_running') {
-      generating.value[ing.name] = 'polling'
+      toast.show('配图已开始生成，可以先做别的。')
+    } else if (result.status === 'already_running') {
+      generating.value[ingredient.name] = 'polling'
+      toast.show('这张配图已经在生成中。')
     } else {
-      generating.value[ing.name] = 'failed'
+      generating.value[ingredient.name] = 'failed'
+      lineArtErrors.value[ingredient.name] = '线稿生成失败，可以重试。'
     }
-  } catch (e: any) {
-    const msg = e?.data?.message || e?.message || ''
-    generating.value[ing.name] = msg.includes('配额') || msg.includes('429') ? 'quota' : 'failed'
-    lineArtErrors.value[ing.name] = msg || '线稿生成失败，可以重试'
-    console.warn('Line art generation failed:', e)
+  } catch (error: unknown) {
+    const message = getApiErrorMessage(error, '线稿生成失败，可以重试。')
+    generating.value[ingredient.name] = message.includes('配额') || message.includes('429') ? 'quota' : 'failed'
+    lineArtErrors.value[ingredient.name] = message
   }
 }
 
 const batchGenerateMissing = async () => {
-  const missing = ingredientsList.value.filter(i => !i.lineArtUrl)
-  if (!missing.length) return
+  const missing = ingredientsList.value.filter(item => !item.lineArtUrl)
+  if (!missing.length || batchGenerating.value) return
   batchGenerating.value = true
   batchProgress.value = { current: 0, total: missing.length }
-
-  // Submit all in parallel (not sequentially!)
-  const promises = missing.map(async (ing) => {
+  await Promise.all(missing.map(async ingredient => {
     try {
-      const result = await generateAndSaveLineArt(ing.name, ing.id)
-      if (result?.status === 'already_exists' && result?.imageUrls) {
-        generating.value[ing.name] = 'done'
-        ing.lineArtUrl = JSON.stringify(result.imageUrls)
-      } else if (result?.jobId) {
-        activeJobs.value.set(result.jobId, { ingredientName: ing.name, ingredientId: ing.id })
-        generating.value[ing.name] = 'polling'
-      } else if (result?.status === 'already_running') {
-        generating.value[ing.name] = 'polling'
-      } else {
-        generating.value[ing.name] = 'failed'
-        lineArtErrors.value[ing.name] = '线稿生成失败，可以重试'
-      }
-    } catch {
-      generating.value[ing.name] = 'failed'
-      lineArtErrors.value[ing.name] = '线稿生成失败，可以重试'
+      const result = await generateAndSaveLineArt(ingredient.name, ingredient.id)
+      if (result.status === 'already_exists' && result.imageUrls?.length) updateIngredientLineArt(ingredient.id, result.imageUrls)
+      else if (result.jobId) {
+        activeJobs.value.set(result.jobId, { ingredientName: ingredient.name, ingredientId: ingredient.id })
+        generating.value[ingredient.name] = 'polling'
+      } else generating.value[ingredient.name] = result.status === 'already_running' ? 'polling' : 'failed'
+    } catch (error: unknown) {
+      generating.value[ingredient.name] = 'failed'
+      lineArtErrors.value[ingredient.name] = getApiErrorMessage(error, '线稿生成失败，可以重试。')
+    } finally {
+      batchProgress.value.current++
     }
-    batchProgress.value.current++
-  })
-
-  await Promise.all(promises)
+  }))
   batchGenerating.value = false
   startPolling()
+  toast.show(activeJobs.value.size ? '批量任务已提交，可以离开页面。' : '批量处理已完成。')
 }
 
-onUnmounted(() => {
-  stopPolling()
-})
+const addLocalFridgeItem = (item: FridgeItem) => zoneList(item.zone as StorageZone).value.unshift(item)
+const removeLocalFridgeItem = (item: FridgeItem) => {
+  const list = zoneList(item.zone as StorageZone)
+  list.value = list.value.filter(existing => existing.id !== item.id)
+}
+const setNameBusy = (name: string, busy: boolean) => {
+  const next = new Set(fridgeBusyNames.value)
+  if (busy) next.add(name); else next.delete(name)
+  fridgeBusyNames.value = next
+}
 
-// Quick store from card — toggle if same zone, move if different zone
-const quickStore = async (ing: any, zone: string) => {
-  const existingItem = storageItemMap.value.get(ing.name)
-  if (existingItem) {
-    // 同区：移除；不同区：移动
-    if (existingItem.zone === zone) {
-      try {
-        await removeFridge(existingItem.id)
-        if (zone === 'frozen') fridgeFrozen.value = fridgeFrozen.value.filter((i: any) => i.id !== existingItem.id)
-        else if (zone === 'room_temp') fridgeRoomTemp.value = fridgeRoomTemp.value.filter((i: any) => i.id !== existingItem.id)
-        else fridgeRefrigerated.value = fridgeRefrigerated.value.filter((i: any) => i.id !== existingItem.id)
-      } catch (e) {
-        console.warn('Quick remove failed:', e)
-      }
+const quickStore = async (ingredient: Ingredient, zone: StorageZone) => {
+  if (fridgeBusyNames.value.has(ingredient.name)) return
+  setNameBusy(ingredient.name, true)
+  const existing = storageItemMap.value.get(ingredient.name)
+  try {
+    if (existing?.zone === zone) {
+      await removeFridgeItem(existing.id)
+      removeLocalFridgeItem(existing)
+      toast.success(ingredient.name + '已移出' + storageZoneMeta[zone].label + '。')
       return
     }
-    // 不同区：先移除旧的
-    try {
-      await removeFridge(existingItem.id)
-      if (existingItem.zone === 'frozen') fridgeFrozen.value = fridgeFrozen.value.filter((i: any) => i.id !== existingItem.id)
-      else if (existingItem.zone === 'room_temp') fridgeRoomTemp.value = fridgeRoomTemp.value.filter((i: any) => i.id !== existingItem.id)
-      else fridgeRefrigerated.value = fridgeRefrigerated.value.filter((i: any) => i.id !== existingItem.id)
-    } catch (e) {
-      console.warn('Quick remove failed:', e)
+    if (existing) {
+      await removeFridgeItem(existing.id)
+      removeLocalFridgeItem(existing)
     }
-  }
-  // 添加到新区
-  try {
-    const item = await addFridge({ name: ing.name, amount: '', zone })
-    if (zone === 'frozen') fridgeFrozen.value.unshift(item)
-    else if (zone === 'room_temp') fridgeRoomTemp.value.unshift(item)
-    else fridgeRefrigerated.value.unshift(item)
-  } catch (e) {
-    console.warn('Quick store failed:', e)
+    try {
+      const added = await addFridgeItem({ name: ingredient.name, amount: existing?.amount || '', zone, expiryDate: existing?.expiryDate || undefined })
+      addLocalFridgeItem(added)
+      toast.success(ingredient.name + '已放入' + storageZoneMeta[zone].label + '。')
+    } catch (error: unknown) {
+      if (existing) {
+        try { addLocalFridgeItem(await addFridgeItem({ name: existing.name, amount: existing.amount || '', zone: existing.zone, expiryDate: existing.expiryDate || undefined })) } catch { /* 回滚失败会在刷新后恢复真实状态 */ }
+      }
+      throw error
+    }
+  } catch (error: unknown) {
+    toast.error(getApiErrorMessage(error, '库存没有更新成功。'))
+  } finally {
+    setNameBusy(ingredient.name, false)
   }
 }
 
-// Fridge add/remove
 const handleAddFridge = async () => {
-  if (!newFridgeItem.value.name.trim()) return
-  const zone = newFridgeItem.value.zone
+  const name = newFridgeItem.value.name.trim()
+  if (!name || addingFridge.value) { fridgeFormError.value = name ? '' : '请先填写食材名称。'; return }
+  addingFridge.value = true
+  fridgeFormError.value = ''
   try {
-    const item = await addFridge({
-      name: newFridgeItem.value.name.trim(),
-      amount: newFridgeItem.value.amount,
-      zone,
-      expiryDate: newFridgeItem.value.expiryDate || undefined,
-    })
-    if (zone === 'frozen') fridgeFrozen.value.unshift(item)
-    else if (zone === 'room_temp') fridgeRoomTemp.value.unshift(item)
-    else fridgeRefrigerated.value.unshift(item)
-    activeMobileStorageZone.value = zone
-    newFridgeItem.value = { name: '', amount: '', zone, expiryDate: '' }
-  } catch (e) {
-    console.warn('Add storage item failed:', e)
+    const item = await addFridgeItem({ name, amount: newFridgeItem.value.amount.trim(), zone: newFridgeItem.value.zone, expiryDate: newFridgeItem.value.expiryDate || undefined })
+    addLocalFridgeItem(item)
+    activeMobileStorageZone.value = newFridgeItem.value.zone
+    newFridgeItem.value = { name: '', amount: '', zone: newFridgeItem.value.zone, expiryDate: '' }
+    toast.success(name + '已加入库存。')
+  } catch (error: unknown) {
+    fridgeFormError.value = getApiErrorMessage(error, '食材没有加入库存。')
+  } finally {
+    addingFridge.value = false
   }
 }
 
-const handleRemoveFridge = async (zone: 'frozen' | 'refrigerated' | 'room_temp', idx: number) => {
-  const list = zone === 'frozen' ? fridgeFrozen : zone === 'room_temp' ? fridgeRoomTemp : fridgeRefrigerated
-  const item = list.value[idx]
+const requestRemoveFridge = (item: FridgeItem) => { pendingRemoveItem.value = item }
+const confirmRemoveFridge = async () => {
+  const item = pendingRemoveItem.value
+  if (!item || removingFridge.value) return
+  removingFridge.value = true
   try {
-    await removeFridge(item.id)
-    list.value.splice(idx, 1)
-  } catch (e) {
-    console.warn('Remove fridge item failed:', e)
+    await removeFridgeItem(item.id)
+    removeLocalFridgeItem(item)
+    pendingRemoveItem.value = null
+    toast.success(item.name + '已移出库存。')
+  } catch (error: unknown) {
+    toast.error(getApiErrorMessage(error, '食材没有移出库存。'))
+  } finally {
+    removingFridge.value = false
   }
 }
+
+onMounted(() => { void loadPage() })
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>
   <div class="animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-end justify-between mb-6">
-      <div>
-        <p class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-1 font-sans">Ingredients</p>
-        <h1 class="text-3xl lg:text-4xl font-serif font-bold text-[#1a1714]">食材</h1>
-      </div>
-      <!-- Active generation indicator -->
-      <div v-if="activeJobs.size > 0" class="flex items-center gap-2 px-3 py-1.5 bg-[#D86830]/10 rounded-full">
-        <span class="w-2 h-2 rounded-full bg-[#D86830] animate-pulse"></span>
-        <span class="text-xs font-mono text-[#D86830]">{{ activeJobs.size }} 个线稿生成中 (可离开页面)</span>
-      </div>
-    </div>
-
-    <!-- Mobile storage snapshot -->
-    <section class="mb-6 rounded-lg border border-[#E3D6C8] bg-white/80 p-4 lg:hidden" data-testid="mobile-storage-summary">
-      <div class="mb-3 flex items-center justify-between">
-        <div>
-          <h2 class="font-serif text-xl font-bold text-[#1a1714]">家里现有</h2>
-          <p class="mt-0.5 text-xs text-[#8B7D6B]">{{ storageTotal }} 件存着的食材</p>
+    <PageHeader title="食材与库存" eyebrow="家里有什么" description="先看冷藏、冷冻、常温和临期，再浏览食材资料。">
+      <template #actions>
+        <div v-if="activeJobs.size" class="flex min-h-11 items-center gap-2 rounded-full bg-[var(--color-warning-soft)] px-4 text-xs font-semibold text-[var(--color-warning)]" role="status">
+          <span class="h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true"></span>{{ activeJobs.size }} 个配图生成中
         </div>
-        <span class="rounded-full bg-[#F4ECE2] px-3 py-1 font-mono text-xs text-[#6B5D4D]">
-          {{ storageZoneMeta[activeMobileStorageZone].label }}
-        </span>
+      </template>
+    </PageHeader>
+
+    <AppNotice v-if="fridgeError" class="mb-5" tone="warning" title="库存暂时不可用" :message="fridgeError"><AppButton class="mt-3" variant="secondary" @click="loadPage">重新加载</AppButton></AppNotice>
+
+    <section data-testid="mobile-storage-summary" class="mb-6 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-sm)] lg:hidden">
+      <div class="mb-4 flex items-start justify-between gap-3">
+        <div><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">家里现有</h2><p class="mt-1 text-sm text-[var(--color-text-muted)]">{{ storageTotal }} 件库存<span v-if="expiringCount">，{{ expiringCount }} 件临期</span></p></div>
+        <span v-if="expiringCount" class="rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-warning)]">先用临期</span>
       </div>
 
-      <div class="mb-3 grid grid-cols-3 gap-2">
-        <button
-          v-for="zone in (['refrigerated', 'frozen', 'room_temp'] as const)"
-          :key="zone"
-          class="rounded-lg border px-2 py-2 text-left transition-colors"
-          :class="activeMobileStorageZone === zone ? storageZoneMeta[zone].tone : 'border-gray-200 bg-white text-[#8B7D6B]'"
-          @click="activeMobileStorageZone = zone"
-        >
-          <span class="block text-sm">{{ storageZoneMeta[zone].icon }} {{ storageZoneMeta[zone].label }}</span>
-          <span class="mt-1 block font-mono text-xs">{{ storageGroups[zone].length }} 件</span>
+      <div class="mb-4 grid grid-cols-3 gap-2" role="tablist" aria-label="库存位置">
+        <button v-for="zone in (['refrigerated', 'frozen', 'room_temp'] as const)" :key="zone" class="min-h-14 rounded-[var(--radius-md)] border px-2 py-2 text-left transition" :class="activeMobileStorageZone === zone ? storageZoneMeta[zone].tone : 'border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-text-muted)]'" role="tab" :aria-selected="activeMobileStorageZone === zone" @click="activeMobileStorageZone = zone">
+          <span class="block text-sm font-semibold">{{ storageZoneMeta[zone].icon }} {{ storageZoneMeta[zone].label }}</span><span class="mt-1 block font-mono text-xs tabular-nums">{{ storageGroups[zone].length }} 件</span>
         </button>
       </div>
 
-      <div class="mb-3 grid grid-cols-[1fr_auto] gap-2">
-        <input
-          v-model="newFridgeItem.name"
-          placeholder="食材名称"
-          class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-[#C06030]"
-        />
-        <select
-          v-model="newFridgeItem.zone"
-          class="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm focus:outline-none"
-        >
-          <option value="refrigerated">冷藏</option>
-          <option value="frozen">冷冻</option>
-          <option value="room_temp">常温</option>
-        </select>
-        <input
-          v-model="newFridgeItem.amount"
-          placeholder="数量"
-          class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-[#C06030]"
-        />
-        <div class="col-span-2 flex items-center gap-2">
-          <label class="text-[10px] text-[#A69080] whitespace-nowrap">保质期</label>
-          <input v-model="newFridgeItem.expiryDate" type="date"
-            class="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs focus:outline-none focus:border-[#C06030]" />
+      <form class="mb-4 rounded-[var(--radius-lg)] bg-[var(--color-bg-soft)] p-3" @submit.prevent="handleAddFridge">
+        <h3 class="mb-3 text-sm font-semibold text-[var(--color-text)]">快速加入库存</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2"><label for="mobile-fridge-name" class="field-label">食材名称</label><input id="mobile-fridge-name" v-model="newFridgeItem.name" class="field-control" autocomplete="off" placeholder="例如：番茄" /></div>
+          <div><label for="mobile-fridge-amount" class="field-label">数量</label><input id="mobile-fridge-amount" v-model="newFridgeItem.amount" class="field-control" placeholder="例如：3 个" /></div>
+          <div><label for="mobile-fridge-zone" class="field-label">存放位置</label><select id="mobile-fridge-zone" v-model="newFridgeItem.zone" class="field-control"><option value="refrigerated">冷藏</option><option value="frozen">冷冻</option><option value="room_temp">常温</option></select></div>
+          <div class="col-span-2"><label for="mobile-fridge-expiry" class="field-label">到期日期（可选）</label><input id="mobile-fridge-expiry" v-model="newFridgeItem.expiryDate" type="date" class="field-control" /></div>
         </div>
-        <button
-          class="rounded-lg bg-[#C06030] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#A85028]"
-          @click="handleAddFridge"
-        >
-          添加
-        </button>
-      </div>
+        <AppNotice v-if="fridgeFormError" class="mt-3" tone="danger" :message="fridgeFormError" />
+        <AppButton class="mt-3" type="submit" block :loading="addingFridge">加入{{ storageZoneMeta[newFridgeItem.zone].label }}</AppButton>
+      </form>
 
-      <div class="max-h-56 overflow-y-auto pr-1">
-        <div v-if="activeMobileStorageItems.length" class="space-y-2">
-          <div
-            v-for="(item, idx) in activeMobileStorageItems"
-            :key="item.id"
-            class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
-          >
-            <div class="min-w-0">
-              <div class="flex min-w-0 items-center gap-2">
-                <span class="truncate text-sm font-medium text-[#1a1714]">{{ item.name }}</span>
-                <span v-if="item.amount" class="font-mono text-xs text-[#A69080]">{{ item.amount }}</span>
-                <span v-if="expiryStatus(item.expiryDate)" class="rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="expiryStatus(item.expiryDate)!.class">{{ expiryStatus(item.expiryDate)!.label }}</span>
-              </div>
-              <p v-if="formatAddedDate(item.addedDate)" class="mt-0.5 text-[11px] text-[#A69080]">
-                {{ formatAddedDate(item.addedDate) }} 放入
-              </p>
-            </div>
-            <button
-              class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[#A69080] transition-colors hover:bg-red-50 hover:text-[#D05050]"
-              aria-label="移出存储"
-              @click="handleRemoveFridge(activeMobileStorageZone, idx)"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" /></svg>
-            </button>
-          </div>
-        </div>
-        <p v-else class="rounded-lg border border-dashed border-[#D8C9B8] py-6 text-center text-sm text-[#A69080]">
-          冷藏室空空的，该去采购了
-        </p>
+      <div v-if="activeMobileStorageItems.length" class="max-h-72 space-y-2 overflow-y-auto pr-1">
+        <article v-for="item in activeMobileStorageItems" :key="item.id" class="flex min-h-14 items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white px-3 py-2">
+          <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-semibold text-[var(--color-text)]">{{ item.name }}</span><span v-if="item.amount" class="font-mono text-xs text-[var(--color-text-muted)]">{{ item.amount }}</span><span v-if="expiryStatus(item.expiryDate)" class="rounded-full px-2 py-1 text-[11px] font-semibold" :class="expiryStatus(item.expiryDate)?.tone">{{ expiryStatus(item.expiryDate)?.label }}</span></div><p v-if="formatAddedDate(item.addedDate)" class="mt-1 text-xs text-[var(--color-text-faint)]">{{ formatAddedDate(item.addedDate) }} 放入</p></div>
+          <button class="touch-target flex shrink-0 items-center justify-center rounded-full text-[var(--color-text-faint)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]" :aria-label="'将' + item.name + '移出库存'" @click="requestRemoveFridge(item)"><span aria-hidden="true">×</span></button>
+        </article>
       </div>
+      <p v-else class="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border-strong)] py-7 text-center text-sm text-[var(--color-text-muted)]">{{ storageZoneMeta[activeMobileStorageZone].empty }}</p>
     </section>
 
-    <!-- Category stats + batch generate -->
-    <div class="flex flex-wrap items-center gap-2 mb-6">
-      <span class="font-mono text-sm font-bold text-[#1a1714] mr-1">{{ stats.total }}</span>
-      <span class="text-xs text-[#8B7D6B] mr-2">种食材</span>
-      <span v-for="cat in categories.slice(0, 6)" :key="cat.name"
-        class="px-2.5 py-1 rounded-full text-[11px] font-medium border cursor-pointer transition-all"
-        :class="activeCategory === cat.name ? 'bg-[#3D3530] text-white border-[#3D3530]' : 'bg-white text-[#8B7D6B] border-gray-200 hover:bg-gray-50'"
-        @click="activeCategory = activeCategory === cat.name ? '' : cat.name">
-        {{ cat.name }} {{ cat.count }}
-      </span>
-      <span v-if="categories.length > 6" class="text-xs text-[#A69080]">+{{ categories.length - 6 }}</span>
-      <div class="flex-1"></div>
-      <button class="hidden px-4 py-1.5 bg-[#C06030] text-white rounded-lg text-xs font-medium hover:bg-[#A85028] transition-colors disabled:opacity-50 sm:inline-flex"
-        :disabled="batchGenerating || stats.missing === 0"
-        aria-label="一键生成缺失配图"
-        @click="batchGenerateMissing">
-        {{ batchGenerating ? `${batchProgress.current}/${batchProgress.total}` : '一键生成配图' }}
-      </button>
+    <div v-if="loading" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="正在加载食材"><div v-for="index in 6" :key="index" class="h-72 animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-bg-soft)]"></div></div>
+    <AppNotice v-else-if="loadError" tone="danger" role="alert" title="食材库没有加载出来" :message="loadError"><AppButton class="mt-3" variant="secondary" @click="loadPage">重新加载</AppButton></AppNotice>
+
+    <div v-else class="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <main class="min-w-0">
+        <section class="mb-5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <div><label for="ingredient-search" class="field-label">搜索食材或分类</label><input id="ingredient-search" v-model="searchQuery" type="search" class="field-control" placeholder="搜索名称、分类，同时看家里有没有" /></div>
+            <div><label for="ingredient-sort" class="field-label">排序</label><select id="ingredient-sort" v-model="sortBy" class="field-control min-w-32"><option value="count">常用优先</option><option value="name">按名称</option><option value="category">按分类</option></select></div>
+            <div><label for="ingredient-art-filter" class="field-label">配图</label><select id="ingredient-art-filter" v-model="lineArtFilter" class="field-control min-w-32"><option value="all">全部</option><option value="has">已有配图</option><option value="missing">缺少配图</option></select></div>
+          </div>
+          <div class="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="食材分类筛选"><button class="min-h-11 shrink-0 rounded-full border px-4 text-sm" :class="!activeCategory ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]' : 'border-[var(--color-border)] text-[var(--color-text-muted)]'" @click="activeCategory = ''">全部 {{ ingredientsList.length }}</button><button v-for="category in categories" :key="category.name" class="min-h-11 shrink-0 rounded-full border border-[var(--color-border)] px-4 text-sm text-[var(--color-text-muted)]" :class="activeCategory === category.name && 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]'" @click="activeCategory = category.name">{{ category.name }} {{ category.count }}</button></div>
+        </section>
+
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2"><p class="text-sm text-[var(--color-text-muted)]">找到 <strong class="font-mono text-[var(--color-text)]">{{ filteredIngredients.length }}</strong> 种食材；卡片会直接告诉你家里有没有。</p><button v-if="searchQuery || activeCategory || lineArtFilter !== 'all' || sortBy !== 'count'" class="min-h-11 px-2 text-sm font-semibold text-[var(--color-accent)]" @click="clearFilters">清除条件</button></div>
+
+        <div v-if="filteredIngredients.length" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <IngredientCard v-for="ingredient in filteredIngredients" :key="ingredient.id" :ingredient="ingredient" :in-storage="storageMap.has(ingredient.name)" :storage-zone="storageMap.get(ingredient.name)" :storage-item="storageItemMap.get(ingredient.name)" @select="openDrawer(ingredient)" @store="zone => quickStore(ingredient, zone)" />
+        </div>
+        <EmptyState v-else title="没有找到符合条件的食材" description="换个关键词，或清除分类和配图筛选。"><AppButton class="mt-4" variant="secondary" @click="clearFilters">清除筛选</AppButton></EmptyState>
+      </main>
+
+      <aside class="hidden space-y-4 lg:block">
+        <section class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-sm)]">
+          <div class="mb-3 flex items-center justify-between"><div><h2 class="font-serif text-lg font-semibold text-[var(--color-text)]">家里现有</h2><p class="text-xs text-[var(--color-text-muted)]">{{ storageTotal }} 件 · {{ expiringCount }} 件临期</p></div><span class="font-mono text-2xl font-semibold text-[var(--color-accent)]">{{ storageTotal }}</span></div>
+          <div v-for="zone in (['refrigerated', 'frozen', 'room_temp'] as const)" :key="zone" class="border-t border-[var(--color-border)] py-3 first:border-0 first:pt-0">
+            <h3 class="mb-2 text-sm font-semibold text-[var(--color-text-muted)]">{{ storageZoneMeta[zone].icon }} {{ storageZoneMeta[zone].label }}（{{ storageGroups[zone].length }}）</h3>
+            <div v-if="storageGroups[zone].length" class="space-y-1"><div v-for="item in storageGroups[zone]" :key="item.id" class="flex min-h-11 items-center justify-between gap-2 rounded-[var(--radius-md)] px-2 hover:bg-[var(--color-bg-soft)]"><div class="min-w-0"><p class="truncate text-sm font-medium text-[var(--color-text)]">{{ item.name }} <span v-if="item.amount" class="font-mono text-xs text-[var(--color-text-muted)]">{{ item.amount }}</span></p><span v-if="expiryStatus(item.expiryDate)" class="text-[11px] font-semibold" :class="expiryStatus(item.expiryDate)?.tone.split(' ').at(-1)">{{ expiryStatus(item.expiryDate)?.label }}</span></div><button class="touch-target flex shrink-0 items-center justify-center rounded-full text-[var(--color-text-faint)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]" :aria-label="'将' + item.name + '移出库存'" @click="requestRemoveFridge(item)">×</button></div></div>
+            <p v-else class="py-2 text-xs text-[var(--color-text-faint)]">{{ storageZoneMeta[zone].empty }}</p>
+          </div>
+        </section>
+
+        <details class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <summary class="flex min-h-11 cursor-pointer items-center justify-between text-sm font-semibold text-[var(--color-text)]">配图管理<span class="font-mono text-xs text-[var(--color-text-muted)]">缺 {{ missingLineArtCount }}</span></summary>
+          <p class="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">低频管理能力。生成会在后台继续，不影响库存操作。</p>
+          <AppButton class="mt-3" block variant="secondary" :loading="batchGenerating" :disabled="!missingLineArtCount" @click="batchGenerateMissing">{{ batchGenerating ? batchProgress.current + ' / ' + batchProgress.total : '补齐缺失配图' }}</AppButton>
+        </details>
+      </aside>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="text-center py-12">
-      <p class="text-[#A69080]">正在盘点食材...</p>
-    </div>
-
-    <!-- Main 70/30 grid -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-10 gap-6">
-      <!-- LEFT: Ingredient Market -->
-      <div class="lg:col-span-7">
-        <!-- Controls -->
-        <div class="flex flex-wrap items-center gap-2 mb-4">
-          <div class="relative flex-1 min-w-[180px] max-w-xs">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-[#A69080] absolute left-3 top-1/2 -translate-y-1/2">
-              <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <input v-model="searchQuery" placeholder="搜索食材..."
-              class="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-[#C06030]"
-              aria-label="搜索食材" />
-          </div>
-          <!-- Sort -->
-          <select v-model="sortBy" class="px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none">
-            <option value="count">使用频次</option>
-            <option value="name">名称</option>
-            <option value="category">分类</option>
-          </select>
-          <!-- Line art filter -->
-          <select v-model="lineArtFilter" class="px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none">
-            <option value="all">全部线稿</option>
-            <option value="missing">待生成</option>
-            <option value="has">已有</option>
-          </select>
-          <!-- Active category clear -->
-          <button v-if="activeCategory" class="px-2 py-1.5 text-xs text-[#C06030] hover:text-[#A85028]" @click="activeCategory = ''">
-            ✕ {{ activeCategory }}
-          </button>
-        </div>
-
-        <!-- Results count -->
-        <p class="text-xs text-[#A69080] mb-3 font-mono">{{ filteredIngredients.length }} 种食材</p>
-
-        <!-- Card grid -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-          <IngredientCard v-for="ing in filteredIngredients" :key="ing.id"
-            :ingredient="ing" :in-storage="storageMap.has(ing.name)" :storage-zone="storageMap.get(ing.name)"
-            :storage-item="storageItemMap.get(ing.name)"
-            @select="openDrawer(ing)" @store="(zone) => quickStore(ing, zone)" />
-        </div>
-
-        <p v-if="!filteredIngredients.length" class="text-center py-12 text-[#A69080]">
-          {{ searchQuery ? '没有找到匹配的食材，换个词试试？' : '食材库空空如也，先添几样常用的吧' }}
-        </p>
-      </div>
-
-      <!-- RIGHT: Storage -->
-      <div class="hidden lg:block lg:col-span-3">
-        <div class="sticky top-6">
-          <h2 class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-4">📦 存储</h2>
-
-          <!-- Add form -->
-          <div class="flex flex-col gap-2 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <input v-model="newFridgeItem.name" placeholder="食材名称"
-              class="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs focus:outline-none focus:border-[#C06030]" />
-            <div class="flex gap-2">
-              <input v-model="newFridgeItem.amount" placeholder="数量"
-                class="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs focus:outline-none focus:border-[#C06030]" />
-              <select v-model="newFridgeItem.zone"
-                class="px-2 py-1.5 bg-white border border-gray-200 rounded-md text-xs focus:outline-none">
-                <option value="refrigerated">冷藏</option>
-                <option value="frozen">冷冻</option>
-                <option value="room_temp">常温</option>
-              </select>
-            </div>
-            <div class="flex items-center gap-2">
-              <label class="text-[10px] text-[#A69080] whitespace-nowrap">保质期</label>
-              <input v-model="newFridgeItem.expiryDate" type="date"
-                class="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded-md text-xs focus:outline-none focus:border-[#C06030]" />
-            </div>
-            <button class="w-full px-3 py-1.5 bg-[#C06030] text-white rounded-md text-xs font-medium hover:bg-[#A85028] transition-colors"
-              @click="handleAddFridge">添加</button>
-          </div>
-
-          <!-- Refrigerated -->
-          <div class="mb-4">
-            <h3 class="text-[10px] font-bold text-[#8B7D6B] uppercase tracking-widest mb-2">🧊 冷藏 ({{ fridgeRefrigerated.length }})</h3>
-            <div class="space-y-1.5">
-              <div v-for="(item, idx) in fridgeRefrigerated" :key="item.id"
-                class="bg-white rounded-md border border-gray-200 px-3 py-1.5 flex items-center justify-between hover:border-gray-300 transition-colors">
-                <div class="min-w-0">
-                  <span class="text-xs font-medium text-[#1a1714] truncate">{{ item.name }}</span>
-                  <span class="font-mono text-[10px] text-[#A69080] ml-1">{{ item.amount }}</span>
-                  <span v-if="expiryStatus(item.expiryDate)" class="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="expiryStatus(item.expiryDate)!.class">{{ expiryStatus(item.expiryDate)!.label }}</span>
-                </div>
-                <button class="w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[#A69080] hover:text-[#D05050] transition-colors"
-                  @click="handleRemoveFridge('refrigerated', idx)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" /></svg>
-                </button>
-              </div>
-              <p v-if="!fridgeRefrigerated.length" class="text-[10px] text-[#A69080] text-center py-3">冷藏室空空的，该去采购了</p>
-            </div>
-          </div>
-
-          <!-- Frozen -->
-          <div>
-            <h3 class="text-[10px] font-bold text-[#8B7D6B] uppercase tracking-widest mb-2">❄️ 冷冻 ({{ fridgeFrozen.length }})</h3>
-            <div class="space-y-1.5">
-              <div v-for="(item, idx) in fridgeFrozen" :key="item.id"
-                class="bg-white rounded-md border border-gray-200 px-3 py-1.5 flex items-center justify-between hover:border-gray-300 transition-colors">
-                <div class="min-w-0">
-                  <span class="text-xs font-medium text-[#1a1714] truncate">{{ item.name }}</span>
-                  <span class="font-mono text-[10px] text-[#A69080] ml-1">{{ item.amount }}</span>
-                  <span v-if="expiryStatus(item.expiryDate)" class="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="expiryStatus(item.expiryDate)!.class">{{ expiryStatus(item.expiryDate)!.label }}</span>
-                </div>
-                <button class="w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[#A69080] hover:text-[#D05050] transition-colors"
-                  @click="handleRemoveFridge('frozen', idx)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" /></svg>
-                </button>
-              </div>
-              <p v-if="!fridgeFrozen.length" class="text-[10px] text-[#A69080] text-center py-3">冷冻区暂时是空的</p>
-            </div>
-          </div>
-
-          <!-- Room temp -->
-          <div>
-            <h3 class="text-[10px] font-bold text-[#8B7D6B] uppercase tracking-widest mb-2">🌡️ 常温 ({{ fridgeRoomTemp.length }})</h3>
-            <div class="space-y-1.5">
-              <div v-for="(item, idx) in fridgeRoomTemp" :key="item.id"
-                class="bg-white rounded-md border border-gray-200 px-3 py-1.5 flex items-center justify-between hover:border-gray-300 transition-colors">
-                <div class="min-w-0">
-                  <span class="text-xs font-medium text-[#1a1714] truncate">{{ item.name }}</span>
-                  <span class="font-mono text-[10px] text-[#A69080] ml-1">{{ item.amount }}</span>
-                  <span v-if="expiryStatus(item.expiryDate)" class="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="expiryStatus(item.expiryDate)!.class">{{ expiryStatus(item.expiryDate)!.label }}</span>
-                </div>
-                <button class="w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[#A69080] hover:text-[#D05050] transition-colors"
-                  @click="handleRemoveFridge('room_temp', idx)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" /></svg>
-                </button>
-              </div>
-              <p v-if="!fridgeRoomTemp.length" class="text-[10px] text-[#A69080] text-center py-3">常温区还没有东西</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Side drawer -->
     <Teleport to="body">
       <Transition name="drawer">
-        <div v-if="drawerOpen && selectedIng" class="fixed inset-0 z-50 flex justify-end">
-          <!-- Backdrop -->
-          <div class="absolute inset-0 bg-black/30" @click="closeDrawer"></div>
-          <!-- Panel -->
-          <div class="relative w-full max-w-md bg-white shadow-xl overflow-y-auto">
-            <div class="p-6">
-              <!-- Header -->
-              <div class="flex items-center justify-between mb-6">
-                <button class="text-sm text-[#8B7D6B] hover:text-[#1a1714] transition-colors flex items-center gap-1" @click="closeDrawer">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
-                  返回
-                </button>
-                <button class="px-4 py-1.5 bg-[#C06030] text-white rounded-lg text-sm font-medium hover:bg-[#A85028] transition-colors disabled:opacity-50"
-                  :disabled="saving" @click="saveIngredient">
-                  {{ saving ? '保存中...' : '保存' }}
-                </button>
+        <div v-if="drawerOpen && selectedIng" class="fixed inset-0 z-50 flex items-end justify-end sm:items-stretch" role="dialog" aria-modal="true" :aria-label="selectedIng.name + '详情'">
+          <button class="absolute inset-0 bg-black/30" aria-label="关闭食材详情" @click="closeDrawer"></button>
+          <section class="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-[var(--radius-xl)] bg-[var(--color-surface)] shadow-2xl sm:max-h-none sm:max-w-lg sm:rounded-none">
+            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 px-5 py-3 backdrop-blur"><div><p class="text-xs text-[var(--color-text-muted)]">食材详情</p><h2 class="font-serif text-xl font-semibold text-[var(--color-text)]">{{ selectedIng.name }}</h2></div><button class="touch-target flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:bg-[var(--color-bg-soft)]" aria-label="关闭食材详情" @click="closeDrawer">×</button></div>
+            <div class="space-y-6 p-5 safe-bottom">
+              <div class="grid gap-4 sm:grid-cols-[10rem_1fr]">
+                <div class="aspect-square overflow-hidden rounded-[var(--radius-lg)] bg-[var(--color-bg-soft)]"><img v-if="primaryLineArt" :src="primaryLineArt" :alt="selectedIng.name + '的主配图'" width="320" height="320" class="h-full w-full object-cover" @error="drawerImageFailed = true" /><HandDrawnPlaceholder v-else :tags="[selectedIng.name]" :alt="`${selectedIng.name}的手绘占位图`" class="h-full w-full" /></div>
+                <div class="space-y-3"><div><label for="ingredient-edit-name" class="field-label">名称</label><input id="ingredient-edit-name" v-model="editForm.name" class="field-control" /></div><div><label for="ingredient-edit-category" class="field-label">分类</label><input id="ingredient-edit-category" v-model="editForm.category" class="field-control" /></div><div><label for="ingredient-edit-family" class="field-label">科属（可选）</label><input id="ingredient-edit-family" v-model="editForm.family" class="field-control" /></div></div>
               </div>
+              <AppNotice v-if="saveError" tone="danger" :message="saveError" />
+              <AppButton block :loading="saving" @click="saveIngredient">保存食材信息</AppButton>
 
-              <!-- Image + edit form -->
-              <div class="flex gap-4 mb-6">
-                <div class="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0" :class="colorClasses[selectedIng.crayonColor || ''] || 'bg-gray-50'">
-                  <img v-if="getLineArtUrls(selectedIng).length" :src="getLineArtUrls(selectedIng)[selectedArtIndex] || getLineArtUrls(selectedIng)[0]" class="w-full h-full object-cover" />
-                  <HandDrawnPlaceholder v-else :tags="[selectedIng.name]" class="w-full h-full" />
-                </div>
-                <div class="flex-1 space-y-3">
-                  <div>
-                    <label class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest mb-1 block">名称</label>
-                    <input v-model="editForm.name" class="w-full px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-[#C06030]" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest mb-1 block">分类</label>
-                    <input v-model="editForm.category" class="w-full px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-[#C06030]" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] font-bold text-[#A69080] uppercase tracking-widest mb-1 block">科</label>
-                    <input v-model="editForm.family" class="w-full px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-[#C06030]" />
-                  </div>
-                </div>
-              </div>
+              <details class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-4">
+                <summary class="flex min-h-11 cursor-pointer items-center justify-between text-sm font-semibold text-[var(--color-text)]">配图与线稿<span class="text-xs font-normal text-[var(--color-text-muted)]">{{ getLineArtUrls(selectedIng).length ? getLineArtUrls(selectedIng).length + ' 张' : '未生成' }}</span></summary>
+                <div v-if="getLineArtUrls(selectedIng).length > 1" class="mt-3 grid grid-cols-4 gap-2"><button v-for="(url, index) in getLineArtUrls(selectedIng)" :key="url" class="aspect-square min-h-11 overflow-hidden rounded-[var(--radius-md)] border-2 bg-white" :class="index === 0 ? 'border-[var(--color-accent)]' : 'border-transparent hover:border-[var(--color-border-strong)]'" :aria-label="index === 0 ? '当前主配图' : '设为主配图'" @click="selectLineArt(selectedIng, url)"><img v-if="!lineArtImageErrors[url]" :src="url" :alt="selectedIng.name + '的候选配图 ' + (index + 1)" width="120" height="120" class="h-full w-full object-cover" @error="lineArtImageErrors[url] = true" /><span v-else class="text-xs text-[var(--color-text-faint)]">图片失效</span></button></div>
+                <AppButton class="mt-3" block variant="secondary" :loading="['submitting', 'polling'].includes(generating[selectedIng.name] || '')" :disabled="generating[selectedIng.name] === 'quota'" @click="generateSingle(selectedIng)">{{ generating[selectedIng.name] === 'polling' ? '生成中，可离开页面' : generating[selectedIng.name] === 'quota' ? '今日配额已用完' : getLineArtUrls(selectedIng).length ? '重新生成候选图' : '生成配图' }}</AppButton>
+                <AppNotice v-if="lineArtErrors[selectedIng.name]" class="mt-3" tone="warning" :message="lineArtErrors[selectedIng.name]" />
+              </details>
 
-              <!-- Line art generation -->
-              <div class="mb-6 p-4 bg-gray-50 rounded-lg">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-bold text-[#8B7D6B]">线稿图</span>
-                  <span class="text-[10px]" :class="getLineArtUrls(selectedIng).length ? 'text-[#6D8B74]' : 'text-[#A69080]'">
-                    {{ getLineArtUrls(selectedIng).length ? `${getLineArtUrls(selectedIng).length} 张可选` : '未生成' }}
-                  </span>
-                </div>
-
-                <!-- Multi-image grid (when multiple available) -->
-                <div v-if="getLineArtUrls(selectedIng).length > 1" class="grid grid-cols-4 gap-2 mb-3">
-                  <div v-for="(url, idx) in getLineArtUrls(selectedIng)" :key="idx"
-                    class="aspect-square rounded-md overflow-hidden cursor-pointer border-2 transition-all"
-                    :class="selectedArtIndex === idx ? 'border-[#C06030] shadow-md' : 'border-transparent hover:border-gray-300'"
-                    @click="selectLineArt(selectedIng, url, idx)">
-                    <img :src="url" class="w-full h-full object-cover" />
-                  </div>
-                </div>
-
-                <button class="w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  :class="generating[selectedIng.name] === 'done' ? 'bg-[#6D8B74] text-white' : generating[selectedIng.name] === 'polling' ? 'bg-[#D86830]/20 text-[#D86830]' : getLineArtUrls(selectedIng).length ? 'bg-gray-200 text-[#8B7D6B] hover:bg-gray-300' : 'bg-[#C06030] text-white hover:bg-[#A85028]'"
-                  :disabled="generating[selectedIng.name] === 'submitting' || generating[selectedIng.name] === 'polling' || generating[selectedIng.name] === 'quota'"
-                  @click="generateSingle(selectedIng)">
-                  {{ generating[selectedIng.name] === 'submitting' ? '提交中...' : generating[selectedIng.name] === 'polling' ? '生成中... (可离开页面)' : generating[selectedIng.name] === 'done' ? '✓ 生成完成' : generating[selectedIng.name] === 'quota' ? '今日配额已用完' : generating[selectedIng.name] === 'failed' ? '生成失败，点击重试' : getLineArtUrls(selectedIng).length ? '重新生成' : '生成配图' }}
-                </button>
-                <p v-if="lineArtErrors[selectedIng.name]" class="mt-2 text-xs text-[#B4472A]">
-                  {{ lineArtErrors[selectedIng.name] }}
-                </p>
-              </div>
-
-              <!-- Related recipes -->
-              <div class="mb-6">
-                <h3 class="text-xs font-bold text-[#A69080] uppercase tracking-widest mb-3">关联菜品 ({{ relatedRecipes.length }})</h3>
-                <div v-if="relatedRecipes.length" class="grid grid-cols-3 gap-2">
-                  <NuxtLink v-for="r in relatedRecipes" :key="r.id" :to="`/recipes/${r.id}`"
-                    class="bg-gray-50 rounded-md p-2 text-center hover:bg-gray-100 transition-colors">
-                    <p class="text-xs font-medium text-[#1a1714] truncate">{{ r.name }}</p>
-                    <p class="font-mono text-[10px] text-[#D86830] mt-0.5">⭐ {{ r.score }}</p>
-                  </NuxtLink>
-                </div>
-                <p v-else class="text-xs text-[#A69080]">这个食材还没出现在任何菜谱里</p>
-              </div>
-
-              <!-- Info -->
-              <div class="text-[10px] text-[#A69080] space-y-1">
-                <p v-if="selectedIng.family">科: {{ selectedIng.family }}</p>
-                <p>颜色: {{ selectedIng.crayonColor || '未设置' }}</p>
-                <p>关联菜品: {{ selectedIng.recipeCount }} 道</p>
-              </div>
+              <section><h3 class="font-serif text-lg font-semibold text-[var(--color-text)]">用到它的菜谱</h3><div v-if="relatedRecipes.length" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3"><NuxtLink v-for="recipe in relatedRecipes" :key="recipe.id" :to="'/recipes/' + recipe.id" class="min-h-16 rounded-[var(--radius-md)] bg-[var(--color-bg-soft)] p-3 hover:bg-[var(--color-accent-soft)]"><p class="truncate text-sm font-semibold text-[var(--color-text)]">{{ recipe.name }}</p><p class="mt-1 font-mono text-xs text-[var(--color-text-muted)]">{{ recipe.score ? '⭐ ' + recipe.score : '还未评分' }}</p></NuxtLink></div><p v-else class="mt-2 text-sm text-[var(--color-text-muted)]">这个食材还没出现在任何菜谱里。</p></section>
             </div>
-          </div>
+          </section>
         </div>
       </Transition>
     </Teleport>
+
+    <ConfirmDialog :open="Boolean(pendingRemoveItem)" :title="pendingRemoveItem ? '将' + pendingRemoveItem.name + '移出库存？' : '移出库存？'" description="这只会移除库存记录，不会删除食材或菜谱。" confirm-label="移出库存" danger :busy="removingFridge" @confirm="confirmRemoveFridge" @cancel="pendingRemoveItem = null" />
   </div>
 </template>
 
 <style scoped>
-.drawer-enter-active, .drawer-leave-active {
-  transition: all 0.3s ease;
-}
-.drawer-enter-active .relative, .drawer-leave-active .relative {
-  transition: transform 0.3s ease;
-}
-.drawer-enter-from .relative, .drawer-leave-to .relative {
-  transform: translateX(100%);
-}
-.drawer-enter-from .absolute, .drawer-leave-to .absolute {
-  opacity: 0;
+.drawer-enter-active,
+.drawer-leave-active { transition: opacity var(--duration-normal) var(--ease-standard); }
+.drawer-enter-active section,
+.drawer-leave-active section { transition: transform var(--duration-normal) var(--ease-standard); }
+.drawer-enter-from,
+.drawer-leave-to { opacity: 0; }
+.drawer-enter-from section,
+.drawer-leave-to section { transform: translateY(100%); }
+@media (min-width: 640px) {
+  .drawer-enter-from section,
+  .drawer-leave-to section { transform: translateX(100%); }
 }
 </style>

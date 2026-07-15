@@ -13,7 +13,9 @@ jobs:
     env:
       DATABASE_URL: file:./dev.db
       AUTH_SECRET: ci-auth-secret-ci-auth-secret-32chars
+      ADMIN_USER: ci-admin
       ADMIN_PASSWORD: ci-admin-password
+      PARTNER_USER: ci-member
       PARTNER_PASSWORD: ci-partner-password
 
     steps:
@@ -29,13 +31,13 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma client
-        run: npx prisma generate
+        run: npm exec prisma generate
 
       - name: Apply migrations
-        run: npx prisma migrate deploy
+        run: npm exec prisma migrate deploy
 
       - name: Seed database
-        run: npx prisma db seed
+        run: npm exec prisma db seed
 
       - name: Check mojibake
         run: npm run check:mojibake
@@ -49,38 +51,17 @@ jobs:
       - name: Unit tests
         run: npm run test
 
-      - name: Build
+      - name: Install Playwright Chromium
+        run: npm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Production build
         run: npm run build
 
-      - name: Build Docker image
-        run: docker build -t food-ci .
+      - name: Export Docker fixture
+        run: npm run export:docker-data
 
       - name: Smoke Docker runtime
-        run: |
-          mkdir -p ci-docker-data
-          cp dev.db ci-docker-data/dev.db
-          container_id="$(docker run -d \
-            --user 0:0 \
-            -p 41834:41832 \
-            -e DATABASE_URL=file:/app/data/dev.db \
-            -e AUTH_SECRET=ci-auth-secret-ci-auth-secret-32chars \
-            -e ADMIN_PASSWORD=ci-admin-password \
-            -e PARTNER_PASSWORD=ci-partner-password \
-            -v "$PWD/ci-docker-data:/app/data" \
-            food-ci)"
-          cleanup() {
-            status="$?"
-            if [ "$status" -ne 0 ]; then
-              docker logs "$container_id"
-            fi
-            docker rm -f "$container_id"
-            exit "$status"
-          }
-          trap cleanup EXIT
-          for i in {1..45}; do
-            if curl -fsS http://127.0.0.1:41834/api/health; then
-              exit 0
-            fi
-            sleep 2
-          done
-          exit 1
+        run: npm run docker:smoke

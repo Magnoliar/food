@@ -41,7 +41,7 @@ try {
   db.close()
 }
 
-for (const optionalDir of ['public_uploads', 'uploads_backup', 'server_data']) {
+for (const optionalDir of ['public_uploads', 'public_line-arts', 'uploads_backup', 'server_data']) {
   const fullPath = path.join(backupDir, optionalDir)
   if (existsSync(fullPath) && !statSync(fullPath).isDirectory()) {
     fail(`${optionalDir} exists but is not a directory`)
